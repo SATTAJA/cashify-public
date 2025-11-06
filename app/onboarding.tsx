@@ -159,7 +159,7 @@ const Onboarding: React.FC = () => {
 
           const backgroundColor = scrollX.interpolate({
             inputRange,
-            outputRange: ['#777', '#00C853', '#777'],
+            outputRange: ['#777', '#44DA76', '#777'],
             extrapolate: 'clamp',
           });
 
@@ -239,7 +239,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 5,
   },
   button: {
-    backgroundColor: '#00C853',
+    backgroundColor: '#44DA76',
     paddingVertical: 16,
     borderRadius: 30,
     marginHorizontal: 30,
