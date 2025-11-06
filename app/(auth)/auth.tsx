@@ -1,37 +1,74 @@
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, Alert, ActivityIndicator } from 'react-native'
-import React, { useState } from 'react'
-import { router } from 'expo-router'
-import { ArrowLeft, Eye, EyeOff } from 'lucide-react-native'
-import { supabase } from '../../lib/supabase'
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  TextInput,
+  Alert,
+  ActivityIndicator,
+} from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import React, { useEffect, useState } from "react";
+import { router } from "expo-router";
+import { ArrowLeft, Check, Eye, EyeOff } from "lucide-react-native";
+import { supabase } from "../../lib/supabase";
 
-const auth = () => {
-  const [isLogin, setIsLogin] = useState(true)
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [visible, setVisible] = useState(false)
-  const [username, setUsername] = useState('')
-  const [loading, setLoading] = useState(false)
+const AuthPage = () => {
+  const [isLogin, setIsLogin] = useState(true);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [visible, setVisible] = useState(false);
+  const [username, setUsername] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
 
+  // === CEK SESSION SAAT APP DIBUKA ===
+  useEffect(() => {
+    const checkSession = async () => {
+      try {
+        const storedSession = await AsyncStorage.getItem("session");
+        if (storedSession) {
+          const { access_token, refresh_token } = JSON.parse(storedSession);
+          const { data, error } = await supabase.auth.setSession({
+            access_token,
+            refresh_token,
+          });
+          if (!error && data.session) {
+            router.replace("/home"); // langsung masuk ke home
+          }
+        }
+      } catch (err) {
+        console.log("Gagal membaca session:", err);
+      }
+    };
+    checkSession();
+  }, []);
+
+  // === HANDLE LOGIN / REGISTER ===
   const handleAuth = async () => {
     if (!email || !password || (!isLogin && !username)) {
-      Alert.alert('Error', 'Harap isi semua kolom.')
-      return
+      Alert.alert("Error", "Harap isi semua kolom.");
+      return;
     }
 
-    setLoading(true)
+    setLoading(true);
 
     if (isLogin) {
       // === LOGIN ===
-      const { error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
-      })
-      setLoading(false)
+      });
+      setLoading(false);
 
-      if (error) Alert.alert('Login gagal', error.message)
-      else {
-        Alert.alert('Berhasil', 'Login berhasil!')
-        router.replace('/home')
+      if (error) {
+        Alert.alert("Login gagal", error.message);
+      } else {
+        Alert.alert("Berhasil", "Login berhasil!");
+        if (rememberMe && data.session) {
+          await AsyncStorage.setItem("session", JSON.stringify(data.session));
+        }
+        router.replace("/home");
       }
     } else {
       // === REGISTER ===
@@ -41,41 +78,44 @@ const auth = () => {
         options: {
           data: { username },
         },
-      })
-      setLoading(false)
+      });
+      setLoading(false);
 
       if (error) {
-        Alert.alert('Gagal daftar', error.message)
-        return
+        Alert.alert("Gagal daftar", error.message);
+        return;
       }
 
       if (!data.session) {
         Alert.alert(
-          'Daftar Berhasil',
-          'Periksa email Anda untuk verifikasi sebelum login.'
-        )
+          "Daftar Berhasil",
+          "Periksa email Anda untuk verifikasi sebelum login."
+        );
       } else {
-        Alert.alert('Berhasil', 'Akun berhasil dibuat!')
-        router.replace('/home')
+        if (rememberMe && data.session) {
+          await AsyncStorage.setItem("session", JSON.stringify(data.session));
+        }
+        Alert.alert("Berhasil", "Akun berhasil dibuat!");
+        router.replace("/home");
       }
 
-      setIsLogin(true)
+      setIsLogin(true);
     }
-  }
+  };
 
   return (
-
-    // === Title & Subtitle ===
     <View style={styles.container}>
       <TouchableOpacity onPress={() => router.back()} style={styles.back}>
         <ArrowLeft color="white" size={35} style={{ marginTop: 20 }} />
       </TouchableOpacity>
 
-      <Text style={styles.title}>{isLogin ? 'Masuk ke Akun Anda' : 'Buat Akun Baru Anda'}</Text>
+      <Text style={styles.title}>
+        {isLogin ? "Masuk ke Akun Anda" : "Buat Akun Baru Anda"}
+      </Text>
       <Text style={styles.subtitle}>
         {isLogin
-          ? 'Masuk untuk pengalaman terbaik mengelola uang'
-          : 'Daftar untuk mulai mengelola keuangan Anda'}
+          ? "Masuk untuk pengalaman terbaik mengelola uang"
+          : "Daftar untuk mulai mengelola keuangan Anda"}
       </Text>
 
       <View style={styles.form}>
@@ -85,14 +125,22 @@ const auth = () => {
             onPress={() => setIsLogin(true)}
             style={[styles.switchButton, isLogin && styles.switchActive]}
           >
-            <Text style={[styles.switchLabel, isLogin && styles.switchLabelActive]}>Login</Text>
+            <Text
+              style={[styles.switchLabel, isLogin && styles.switchLabelActive]}
+            >
+              Login
+            </Text>
           </TouchableOpacity>
 
           <TouchableOpacity
             onPress={() => setIsLogin(false)}
             style={[styles.switchButton, !isLogin && styles.switchActive]}
           >
-            <Text style={[styles.switchLabel, !isLogin && styles.switchLabelActive]}>Register</Text>
+            <Text
+              style={[styles.switchLabel, !isLogin && styles.switchLabelActive]}
+            >
+              Register
+            </Text>
           </TouchableOpacity>
         </View>
 
@@ -125,7 +173,7 @@ const auth = () => {
             onChangeText={setPassword}
             value={password}
           />
-          <TouchableOpacity onPress={() => setVisible(v => !v)}>
+          <TouchableOpacity onPress={() => setVisible((v) => !v)}>
             {visible ? (
               <Eye size={24} color="#666" />
             ) : (
@@ -134,46 +182,57 @@ const auth = () => {
           </TouchableOpacity>
         </View>
 
-        <TouchableOpacity onPress={handleAuth} style={styles.button} disabled={loading}>
+        {/* === Checkbox Remember Me === */}
+        <View style={styles.rememberContainer}>
+          <TouchableOpacity
+            onPress={() => setRememberMe(!rememberMe)}
+            style={[styles.checkbox, rememberMe && styles.checkboxActive]}
+          >
+            {rememberMe && <Check size={16} color="black" />}
+          </TouchableOpacity>
+          <Text style={styles.rememberText}>Ingat saya</Text>
+        </View>
+
+        {/* === Button === */}
+        <TouchableOpacity
+          onPress={handleAuth}
+          style={styles.button}
+          disabled={loading}
+        >
           {loading ? (
             <ActivityIndicator color="white" />
           ) : (
-            <Text style={styles.buttonText}>{isLogin ? 'Login' : 'Register'}</Text>
+            <Text style={styles.buttonText}>
+              {isLogin ? "Login" : "Register"}
+            </Text>
           )}
         </TouchableOpacity>
       </View>
     </View>
-  )
-}
+  );
+};
 
-export default auth
+export default AuthPage;
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#151716',
-  },
+  container: { flex: 1, backgroundColor: "#151716" },
   title: {
     fontSize: 32,
-    color: 'white',
-    fontWeight: 'bold',
+    color: "white",
+    fontWeight: "bold",
     marginTop: 150,
     marginHorizontal: 25,
   },
   subtitle: {
     fontSize: 15,
-    color: 'gray',
+    color: "gray",
     marginTop: 10,
     marginHorizontal: 25,
   },
-  back: {
-    position: 'absolute',
-    top: 50,
-    left: 25,
-  },
+  back: { position: "absolute", top: 50, left: 25 },
   form: {
     flex: 1,
-    backgroundColor: 'white',
+    backgroundColor: "white",
     marginTop: 50,
     borderTopLeftRadius: 30,
     borderTopRightRadius: 30,
@@ -182,72 +241,76 @@ const styles = StyleSheet.create({
 
   // === SWITCH TAB ===
   switchContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    backgroundColor: '#E8E8E8',
+    flexDirection: "row",
+    justifyContent: "space-around",
+    backgroundColor: "#E8E8E8",
     borderRadius: 30,
     padding: 5,
     marginBottom: 25,
   },
   switchButton: {
     flex: 1,
-    alignItems: 'center',
+    alignItems: "center",
     paddingVertical: 10,
     borderRadius: 25,
   },
-  switchActive: {
-    backgroundColor: 'white',
-  },
-  switchLabel: {
-    color: '#777',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  switchLabelActive: {
-    color: 'black',
-    fontWeight: 'bold',
-  },
+  switchActive: { backgroundColor: "white" },
+  switchLabel: { color: "#777", fontSize: 16, fontWeight: "600" },
+  switchLabelActive: { color: "black", fontWeight: "bold" },
 
   input: {
     height: 50,
-    backgroundColor: 'white',
-    borderRadius: 10,
+    backgroundColor: "white",
+    borderRadius: 15,
     paddingHorizontal: 15,
     marginBottom: 15,
     fontSize: 16,
-    color: 'black',
+    color: "black",
     borderWidth: 2,
-    borderColor: '#E8E8E8',
-    
+    borderColor: "#E8E8E8",
   },
   passwordContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'white',
-    borderRadius: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "white",
+    borderRadius: 15,
     paddingHorizontal: 15,
     marginBottom: 15,
     borderWidth: 2,
-    borderColor: '#E8E8E8',
+    borderColor: "#E8E8E8",
+  },
+  passwordInput: { flex: 1, height: 50, fontSize: 16, color: "black" },
 
+  rememberContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 20,
   },
-  passwordInput: {
-    flex: 1,
-    height: 50,
-    fontSize: 16,
-    color: 'black',
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderWidth: 2,
+    borderColor: "black",
+    borderRadius: 5,
+    marginRight: 10,
+    marginLeft: 5,
+    justifyContent: "center",
+    alignItems: "center",
   },
+  checkboxActive: { borderColor: "black" },
+  rememberText: { color: "#333", fontSize: 15 },
+
   button: {
-    backgroundColor: '#44DA76',
+    backgroundColor: "#44DA76",
     borderRadius: 100,
     height: 55,
-    justifyContent: 'center',
+    justifyContent: "center",
     marginTop: 10,
   },
   buttonText: {
-    color: 'white',
-    textAlign: 'center',
+    color: "white",
+    textAlign: "center",
     fontSize: 16,
-    fontWeight: 'bold',
+    fontWeight: "bold",
   },
-})
+});
