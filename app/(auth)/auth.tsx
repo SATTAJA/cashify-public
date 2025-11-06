@@ -4,13 +4,21 @@ import {
   StyleSheet,
   TouchableOpacity,
   TextInput,
-  Alert,
   ActivityIndicator,
+  Modal,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { useEffect, useState } from "react";
 import { router } from "expo-router";
-import { ArrowLeft, Check, Eye, EyeOff } from "lucide-react-native";
+import {
+  ArrowLeft,
+  Check,
+  Eye,
+  EyeOff,
+  XCircle,
+  CheckCircle,
+  Info,
+} from "lucide-react-native";
 import { supabase } from "../../lib/supabase";
 
 const AuthPage = () => {
@@ -21,6 +29,12 @@ const AuthPage = () => {
   const [username, setUsername] = useState("");
   const [loading, setLoading] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
+
+  // === STATE UNTUK CUSTOM ALERT ===
+  const [alertVisible, setAlertVisible] = useState(false);
+  const [alertTitle, setAlertTitle] = useState("");
+  const [alertMessage, setAlertMessage] = useState("");
+  const [alertType, setAlertType] = useState("info"); // success | error | info
 
   // === CEK SESSION SAAT APP DIBUKA ===
   useEffect(() => {
@@ -44,10 +58,22 @@ const AuthPage = () => {
     checkSession();
   }, []);
 
+  // === FUNGSI UNTUK MENAMPILKAN ALERT MODERN ===
+  const showAlert = (
+    title: string,
+    message: string,
+    type: "success" | "error" | "info" = "info"
+  ) => {
+    setAlertTitle(title);
+    setAlertMessage(message);
+    setAlertType(type);
+    setAlertVisible(true);
+  };
+
   // === HANDLE LOGIN / REGISTER ===
   const handleAuth = async () => {
     if (!email || !password || (!isLogin && !username)) {
-      Alert.alert("Error", "Harap isi semua kolom.");
+      showAlert("Error", "Harap isi semua kolom.", "error");
       return;
     }
 
@@ -62,13 +88,13 @@ const AuthPage = () => {
       setLoading(false);
 
       if (error) {
-        Alert.alert("Login gagal", error.message);
+        showAlert("Login Gagal", error.message, "error");
       } else {
-        Alert.alert("Berhasil", "Login berhasil!");
+        showAlert("Berhasil", "Login berhasil!", "success");
         if (rememberMe && data.session) {
           await AsyncStorage.setItem("session", JSON.stringify(data.session));
         }
-        router.replace("/home");
+        setTimeout(() => router.replace("/home"), 800);
       }
     } else {
       // === REGISTER ===
@@ -82,24 +108,37 @@ const AuthPage = () => {
       setLoading(false);
 
       if (error) {
-        Alert.alert("Gagal daftar", error.message);
+        showAlert("Gagal Daftar", error.message, "error");
         return;
       }
 
       if (!data.session) {
-        Alert.alert(
+        showAlert(
           "Daftar Berhasil",
-          "Periksa email Anda untuk verifikasi sebelum login."
+          "Periksa email Anda untuk verifikasi sebelum login.",
+          "info"
         );
       } else {
         if (rememberMe && data.session) {
           await AsyncStorage.setItem("session", JSON.stringify(data.session));
         }
-        Alert.alert("Berhasil", "Akun berhasil dibuat!");
-        router.replace("/home");
+        showAlert("Berhasil", "Akun berhasil dibuat!", "success");
+        setTimeout(() => router.replace("/home"), 800);
       }
 
       setIsLogin(true);
+    }
+  };
+
+  // === TAMPILKAN ICON ALERT SESUAI TYPE ===
+  const renderAlertIcon = () => {
+    switch (alertType) {
+      case "error":
+        return <XCircle color="#ff4d4f" size={60} />;
+      case "success":
+        return <CheckCircle color="#44DA76" size={60} />;
+      default:
+        return <Info color="#1890ff" size={60} />;
     }
   };
 
@@ -208,6 +247,30 @@ const AuthPage = () => {
           )}
         </TouchableOpacity>
       </View>
+
+      {/* === MODERN CUSTOM ALERT === */}
+      <Modal visible={alertVisible} transparent animationType="fade">
+        <View style={styles.overlay}>
+          <View style={styles.alertBox}>
+            {renderAlertIcon()}
+            <Text style={styles.alertTitle}>{alertTitle}</Text>
+            <Text style={styles.alertMessage}>{alertMessage}</Text>
+            <TouchableOpacity
+              style={[
+                styles.closeButton,
+                alertType === "error"
+                  ? { backgroundColor: "#ff4d4f" }
+                  : alertType === "success"
+                  ? { backgroundColor: "#44DA76" }
+                  : { backgroundColor: "#1890ff" },
+              ]}
+              onPress={() => setAlertVisible(false)}
+            >
+              <Text style={styles.closeText}>Tutup</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -312,5 +375,44 @@ const styles = StyleSheet.create({
     textAlign: "center",
     fontSize: 16,
     fontWeight: "bold",
+  },
+
+  // === CUSTOM ALERT ===
+  overlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  alertBox: {
+    backgroundColor: "white",
+    width: "80%",
+    borderRadius: 20,
+    padding: 25,
+    alignItems: "center",
+    elevation: 10,
+  },
+  alertTitle: {
+    fontSize: 22,
+    fontWeight: "bold",
+    marginTop: 10,
+    color: "#222",
+  },
+  alertMessage: {
+    color: "#444",
+    textAlign: "center",
+    marginVertical: 10,
+    fontSize: 16,
+  },
+  closeButton: {
+    borderRadius: 30,
+    paddingHorizontal: 30,
+    paddingVertical: 10,
+    marginTop: 10,
+  },
+  closeText: {
+    color: "white",
+    fontWeight: "bold",
+    fontSize: 16,
   },
 });
