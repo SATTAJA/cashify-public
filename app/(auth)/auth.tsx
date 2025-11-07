@@ -142,9 +142,13 @@ const AuthPage = () => {
     }
   };
 
+  const handleBack = () => {
+    router.replace('/onboarding');
+  };  
+
   return (
     <View style={styles.container}>
-      <TouchableOpacity onPress={() => router.back()} style={styles.back}>
+      <TouchableOpacity onPress={handleBack} style={styles.back}>
         <ArrowLeft color="white" size={35} style={{ marginTop: 20 }} />
       </TouchableOpacity>
 
