@@ -171,7 +171,7 @@ const AuthPage = () => {
             <Text
               style={[styles.switchLabel, isLogin && styles.switchLabelActive]}
             >
-              Login
+              Masuk
             </Text>
           </TouchableOpacity>
 
@@ -182,7 +182,7 @@ const AuthPage = () => {
             <Text
               style={[styles.switchLabel, !isLogin && styles.switchLabelActive]}
             >
-              Register
+              Daftar
             </Text>
           </TouchableOpacity>
         </View>
@@ -190,7 +190,7 @@ const AuthPage = () => {
         {!isLogin && (
           <TextInput
             style={styles.input}
-            placeholder="Username"
+            placeholder="Nama Pengguna"
             placeholderTextColor="gray"
             onChangeText={setUsername}
             value={username}
@@ -210,7 +210,7 @@ const AuthPage = () => {
         <View style={styles.passwordContainer}>
           <TextInput
             style={styles.passwordInput}
-            placeholder="Password"
+            placeholder="Kata Sandi"
             placeholderTextColor="gray"
             secureTextEntry={!visible}
             onChangeText={setPassword}
@@ -224,17 +224,19 @@ const AuthPage = () => {
             )}
           </TouchableOpacity>
         </View>
-
         {/* === Checkbox Remember Me === */}
-        <View style={styles.rememberContainer}>
+            {isLogin && (
+              
+              <View style={styles.rememberContainer}>
           <TouchableOpacity
             onPress={() => setRememberMe(!rememberMe)}
             style={[styles.checkbox, rememberMe && styles.checkboxActive]}
-          >
+            >
             {rememberMe && <Check size={16} color="black" />}
           </TouchableOpacity>
           <Text style={styles.rememberText}>Ingat saya</Text>
         </View>
+          )}
 
         {/* === Button === */}
         <TouchableOpacity
@@ -246,7 +248,7 @@ const AuthPage = () => {
             <ActivityIndicator color="white" />
           ) : (
             <Text style={styles.buttonText}>
-              {isLogin ? "Login" : "Register"}
+              {isLogin ? "Masuk" : "Daftar"}
             </Text>
           )}
         </TouchableOpacity>
