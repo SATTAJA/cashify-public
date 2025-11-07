@@ -9,8 +9,32 @@ import {
 } from 'react-native';
 import { Image } from 'expo-image';
 import { router, useRouter } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { supabase } from '@/lib/supabase';
 
 const { width } = Dimensions.get('window');
+
+// === CEK SESSION SAAT APP DIBUKA ===
+  useEffect(() => {
+    const checkSession = async () => {
+      try {
+        const storedSession = await AsyncStorage.getItem("session");
+        if (storedSession) {
+          const { access_token, refresh_token } = JSON.parse(storedSession);
+          const { data, error } = await supabase.auth.setSession({
+            access_token,
+            refresh_token,
+          });
+          if (!error && data.session) {
+            router.replace("/home"); // langsung masuk ke home
+          }
+        }
+      } catch (err) {
+        console.log("Gagal membaca session:", err);
+      }
+    };
+    checkSession();
+  }, []);
 
 // 🧩 Data Onboarding
 const slides = [
