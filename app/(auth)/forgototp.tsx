@@ -4,7 +4,7 @@ import { ArrowLeft } from "lucide-react-native";
 import { supabase } from "../../lib/supabase";
 import { useLocalSearchParams, router } from "expo-router";
 
-const ForgotOtpPage = () => {
+const forgototp = () => {
   const { email } = useLocalSearchParams<{ email: string }>();
   const [otp, setOtp] = useState(["", "", "", "", "", ""]);
   const [loading, setLoading] = useState(false);
@@ -58,7 +58,7 @@ const ForgotOtpPage = () => {
   );
 };
 
-export default ForgotOtpPage;
+export default forgototp;
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#151716" },

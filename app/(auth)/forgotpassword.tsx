@@ -4,7 +4,7 @@ import { ArrowLeft } from "lucide-react-native";
 import { supabase } from "../../lib/supabase";
 import { router } from "expo-router";
 
-const ForgotNewPasswordPage = () => {
+const forgotpassword = () => {
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -59,7 +59,7 @@ const ForgotNewPasswordPage = () => {
   );
 };
 
-export default ForgotNewPasswordPage;
+export default forgotpassword;
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#151716" },

@@ -12,7 +12,7 @@ import { ArrowLeft, CheckCircle, XCircle, Info } from "lucide-react-native";
 import { supabase } from "../../lib/supabase";
 import { router } from "expo-router";
 
-const ForgotEmailPage = () => {
+const forgot = () => {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -113,7 +113,7 @@ const ForgotEmailPage = () => {
   );
 };
 
-export default ForgotEmailPage;
+export default forgot;
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#151716" },
