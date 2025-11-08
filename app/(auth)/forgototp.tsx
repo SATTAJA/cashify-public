@@ -137,7 +137,7 @@ const ForgotOtp: React.FC = () => {
             placeholder="-"
             placeholderTextColor="gray"
             selectionColor="transparent" // hilangkan caret
-            caretHidden={true} // 🔥 tidak ada garis kedip
+            caretHidden={true} // tidak ada garis kedip
             allowFontScaling={false}
           />
         ))}
