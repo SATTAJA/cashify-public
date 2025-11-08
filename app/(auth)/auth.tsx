@@ -143,8 +143,8 @@ const AuthPage = () => {
   };
 
   const handleBack = () => {
-    router.replace('/onboarding');
-  };  
+    router.replace("/onboarding");
+  };
 
   return (
     <View style={styles.container}>
@@ -187,6 +187,7 @@ const AuthPage = () => {
           </TouchableOpacity>
         </View>
 
+        {/* === Input Nama Pengguna === */}
         {!isLogin && (
           <TextInput
             style={styles.input}
@@ -197,6 +198,7 @@ const AuthPage = () => {
           />
         )}
 
+        {/* === Input Email === */}
         <TextInput
           style={styles.input}
           placeholder="Email"
@@ -224,19 +226,31 @@ const AuthPage = () => {
             )}
           </TouchableOpacity>
         </View>
+
+        <View style={styles.checkboxContainer}>
         {/* === Checkbox Remember Me === */}
-            {isLogin && (
-              
-              <View style={styles.rememberContainer}>
-          <TouchableOpacity
-            onPress={() => setRememberMe(!rememberMe)}
-            style={[styles.checkbox, rememberMe && styles.checkboxActive]}
+        {isLogin && (
+          <View style={styles.rememberContainer}>
+            <TouchableOpacity
+              onPress={() => setRememberMe(!rememberMe)}
+              style={[styles.checkbox, rememberMe && styles.checkboxActive]}
             >
-            {rememberMe && <Check size={16} color="black" />}
+              {rememberMe && <Check size={16} color="black" />}
+            </TouchableOpacity>
+            <Text style={styles.rememberText}>Ingat saya</Text>
+          </View>
+        )}
+
+        {/* ==== Lupa Sandi === */}
+        {isLogin && (
+          <TouchableOpacity
+          onPress={() => router.push("/forgot")}
+          style={styles.forgotButton}
+          >
+            <Text style={styles.forgotText}>Lupa Kata Sandi?</Text>
           </TouchableOpacity>
-          <Text style={styles.rememberText}>Ingat saya</Text>
+        )}
         </View>
-          )}
 
         {/* === Button === */}
         <TouchableOpacity
@@ -350,10 +364,18 @@ const styles = StyleSheet.create({
   },
   passwordInput: { flex: 1, height: 50, fontSize: 16, color: "black" },
 
+
+  checkboxContainer: {
+  justifyContent: "space-between",
+  flexDirection: "row",
+  alignItems: "center",
+  marginBottom: 20,
+  },
+
   rememberContainer: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 20,
+
   },
   checkbox: {
     width: 20,
@@ -363,11 +385,15 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     marginRight: 10,
     marginLeft: 5,
-    justifyContent: "center",
-    alignItems: "center",
+
   },
   checkboxActive: { borderColor: "black" },
   rememberText: { color: "#333", fontSize: 15 },
+
+  forgotButton: {
+
+  },
+  forgotText: { color: "#44DA76", fontSize: 15, textDecorationLine: "underline", fontWeight: "light" },
 
   button: {
     backgroundColor: "#44DA76",
