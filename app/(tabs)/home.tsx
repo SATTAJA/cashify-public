@@ -1,41 +1,110 @@
-import React, { useState } from 'react'
-import { View, Text, TouchableOpacity, StyleSheet, Modal, Alert } from 'react-native'
-import { Ionicons } from '@expo/vector-icons'
-import { router } from 'expo-router'
-import AsyncStorage from '@react-native-async-storage/async-storage'
-import { supabase } from '../../lib/supabase'
+import React, { useState, useEffect } from "react";
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  Modal,
+  Alert,
+  Image,
+  Platform,
+} from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { router } from "expo-router";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { supabase } from "../../lib/supabase";
+
+// ✅ Definisikan tipe user
+type UserInfo = {
+  username: string;
+  avatar_url: string | null;
+} | null;
 
 export default function Home() {
-  const [menuVisible, setMenuVisible] = useState(false)
+  const [menuVisible, setMenuVisible] = useState(false);
+  const [user, setUser] = useState<UserInfo>(null);
+  const [loadingUser, setLoadingUser] = useState(true);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const fetchUser = async () => {
+      try {
+        const res = await supabase.auth.getUser();
+        const fetchedUser = res?.data?.user ?? null;
+        if (!mounted) return;
+        if (fetchedUser) {
+          setUser({
+            username:
+              fetchedUser.user_metadata?.username ??
+              fetchedUser.email?.split("@")[0] ??
+              "User",
+            avatar_url: fetchedUser.user_metadata?.avatar_url ?? null,
+          });
+        } else {
+          setUser(null);
+        }
+      } catch (err) {
+        console.log("fetchUser error", err);
+        setUser(null);
+      } finally {
+        if (mounted) setLoadingUser(false);
+      }
+    };
+
+    fetchUser();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const handleLogout = async () => {
     try {
-      await supabase.auth.signOut()
-      await AsyncStorage.removeItem('session')
-      router.replace('/auth')
+      await supabase.auth.signOut();
+      await AsyncStorage.removeItem("session");
+      router.replace("/auth");
     } catch (error) {
-      Alert.alert('Logout Gagal', 'Terjadi kesalahan saat logout.')
+      Alert.alert("Logout Gagal", "Terjadi kesalahan saat logout.");
     }
-  }
+  };
 
   return (
     <View style={styles.container}>
-      {/* Tombol titik tiga kanan atas */}
-      <TouchableOpacity
-        style={styles.menuButton}
-        onPress={() => setMenuVisible(true)}
-      >
-        <Ionicons name="ellipsis-vertical" size={26} color="white" />
-      </TouchableOpacity>
+      {/* ===== HEADER BAR ===== */}
+      <View style={styles.header}>
+        {/* Avatar + Username */}
+        <TouchableOpacity
+          style={styles.headerLeft}
+          activeOpacity={0.7}
+          onPress={() => router.push("/profile")}
+        >
+          {user?.avatar_url ? (
+            <Image source={{ uri: user.avatar_url }} style={styles.avatar} />
+          ) : (
+            <View style={styles.avatarPlaceholder}>
+              <Ionicons name="person-outline" size={22} color="white" />
+            </View>
+          )}
+          <Text style={styles.usernameText}>
+            {loadingUser ? "Memuat..." : user?.username ?? "Guest"}
+          </Text>
+        </TouchableOpacity>
 
-      <Text style={styles.title}>Selamat datang di Home!</Text>
+        {/* Tombol menu */}
+        <TouchableOpacity
+          style={styles.menuButton}
+          onPress={() => setMenuVisible(true)}
+        >
+          <Ionicons name="ellipsis-vertical" size={26} color="white" />
+        </TouchableOpacity>
+      </View>
 
-      {/* Tombol Logout di tengah */}
-      <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-        <Text style={styles.logoutText}>Logout</Text>
-      </TouchableOpacity>
+      {/* ===== BODY ===== */}
+      <View style={styles.body}>
+        
+      </View>
 
-      {/* Menu pop-up */}
+      {/* ===== MENU POP-UP ===== */}
       <Modal
         transparent
         visible={menuVisible}
@@ -43,79 +112,116 @@ export default function Home() {
         onRequestClose={() => setMenuVisible(false)}
       >
         <TouchableOpacity
-          style={styles.overlay}
+          style={styles.modalOverlay}
           activeOpacity={1}
           onPressOut={() => setMenuVisible(false)}
         >
-          <View style={styles.menuContainer}>
-            <TouchableOpacity
-              style={styles.menuItem}
-              onPress={() => {
-                setMenuVisible(false)
-                router.push('/profile')
-              }}
-            >
-              <Ionicons name="person-outline" size={20} color="white" />
-              <Text style={styles.menuText}>Profile Setting</Text>
-            </TouchableOpacity>
+          <View style={styles.menuWrapper}>
+            <View style={styles.menuContainer}>
+              <TouchableOpacity
+                style={styles.menuItem}
+                onPress={() => {
+                  setMenuVisible(false);
+                  router.push("/profile");
+                }}
+              >
+                <Ionicons name="person-outline" size={20} color="white" />
+                <Text style={styles.menuProfile}>Profile Setting</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.menuItem}
+                onPress={handleLogout}
+              >
+                <Ionicons name="log-out-outline" size={20} color="#F55353" />
+                <Text style={styles.menuLogout}>Log Out</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </TouchableOpacity>
       </Modal>
     </View>
-  )
+  );
 }
+
+const HEADER_TOP_PADDING = Platform.OS === "android" ? 20 : 50;
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#151716',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#151716",
   },
-  title: {
-    fontSize: 16,
-    color: 'white',
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingTop: HEADER_TOP_PADDING,
+
+    marginTop: 25,
+  },
+  headerLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  avatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+  },
+  avatarPlaceholder: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#333",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  usernameText: {
+    color: "white",
+    fontSize: 14,
+    marginLeft: 10,
   },
   menuButton: {
-    position: 'absolute',
-    top: 50,
-    right: 25,
-    zIndex: 10,
+    padding: 6,
   },
-  overlay: {
+  body: {
     flex: 1,
-    justifyContent: 'flex-start',
-    alignItems: 'flex-start',
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalOverlay: {
+    flex: 1,
+  },
+  menuWrapper: {
+    position: "absolute",
+    right: 16,
+    top: HEADER_TOP_PADDING + 40,
   },
   menuContainer: {
-    backgroundColor: '#222',
-    marginTop: 60,
-    marginLeft: 200,
+    backgroundColor: "#222",
     borderRadius: 10,
-    paddingVertical: 10,
-    width: 180,
+    paddingVertical: 6,
+    minWidth: 160,
+    elevation: 6,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
   },
   menuItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     paddingVertical: 10,
-    paddingHorizontal: 15,
+    paddingHorizontal: 12,
   },
-  menuText: {
-    color: 'white',
+  menuProfile: {
+    color: "white",
     marginLeft: 10,
     fontSize: 14,
   },
-  logoutButton: {
-    backgroundColor: '#44DA76',
-    paddingVertical: 12,
-    paddingHorizontal: 25,
-    borderRadius: 30,
-    marginTop: 30,
+  menuLogout: {
+    color: "#F55353",
+    marginLeft: 10,
+    fontSize: 14,
   },
-  logoutText: {
-    color: 'white',
-    fontWeight: 'bold',
-    fontSize: 16,
-  },
-})
+});
