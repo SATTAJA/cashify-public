@@ -14,7 +14,7 @@ import { router } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../../lib/supabase";
 
-// ✅ Definisikan tipe user
+//  Definisikan tipe user
 type UserInfo = {
   username: string;
   avatar_url: string | null;
