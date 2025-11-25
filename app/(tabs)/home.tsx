@@ -73,10 +73,8 @@ export default function Home() {
       {/* ===== HEADER BAR ===== */}
       <View style={styles.header}>
         {/* Avatar + Username */}
-        <TouchableOpacity
+        <View
           style={styles.headerLeft}
-          activeOpacity={0.7}
-          onPress={() => router.push("/profile")}
         >
           {user?.avatar_url ? (
             <Image source={{ uri: user.avatar_url }} style={styles.avatar} />
@@ -88,7 +86,7 @@ export default function Home() {
           <Text style={styles.usernameText}>
             {loadingUser ? "Memuat..." : user?.username ?? "Guest"}
           </Text>
-        </TouchableOpacity>
+        </View>
 
         {/* Tombol menu */}
         <TouchableOpacity
@@ -100,9 +98,23 @@ export default function Home() {
       </View>
 
       {/* ===== BODY ===== */}
-      <View style={styles.body}>
-        
-      </View>
+<View style={styles.body}>
+  
+  <Image
+    source={require("../../assets/images/GreenBackground.png")}
+    style={styles.backgroundImage}
+  />
+
+  {/* Analisis + Tombol di kiri-kanan */}
+  <View style={styles.analisisContainer}>
+    <Text style={styles.analisisText}>Analisis Bulan Ini</Text>
+
+    <TouchableOpacity style={styles.detailButton}>
+      <Text style={styles.detailText}>Lihat Detail</Text>
+    </TouchableOpacity>
+  </View>
+</View>
+
 
       {/* ===== MENU POP-UP ===== */}
       <Modal
@@ -126,14 +138,14 @@ export default function Home() {
                 }}
               >
                 <Ionicons name="person-outline" size={20} color="white" />
-                <Text style={styles.menuProfile}>Profile Setting</Text>
+                <Text style={styles.menuProfile}>Pengaturan Profil</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.menuItem}
                 onPress={handleLogout}
               >
                 <Ionicons name="log-out-outline" size={20} color="#F55353" />
-                <Text style={styles.menuLogout}>Log Out</Text>
+                <Text style={styles.menuLogout}>Keluar</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -164,21 +176,22 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 50,
+    height: 50,
+    borderRadius: 30,
   },
   avatarPlaceholder: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 50,
+    height: 50,
+    borderRadius: 30,
     backgroundColor: "#333",
     justifyContent: "center",
     alignItems: "center",
   },
   usernameText: {
     color: "white",
-    fontSize: 14,
+    fontSize: 18,
+    fontWeight: "bold",
     marginLeft: 10,
   },
   menuButton: {
@@ -186,12 +199,45 @@ const styles = StyleSheet.create({
   },
   body: {
     flex: 1,
-    justifyContent: "center",
     alignItems: "center",
+    top: 40,
   },
   modalOverlay: {
     flex: 1,
   },
+
+  backgroundImage: {
+     width: "90%",                     // persegi panjang di tengah
+     height: 210,
+    justifyContent: "center",
+
+  },
+ analisisContainer: {
+  width: "90%",                  // sejajar dengan lebar card
+  flexDirection: "row",
+  justifyContent: "space-between",
+  alignItems: "center",
+  marginTop: 35,
+},
+
+analisisText: {
+  color: "white",
+  fontSize: 18,
+},
+
+detailButton: {
+  paddingVertical: 8,
+  paddingHorizontal: 14,
+  borderRadius: 8,
+},
+
+detailText: {
+  color: "#44DA76",
+  fontSize: 14,
+  fontWeight: "600",
+},
+
+
   menuWrapper: {
     position: "absolute",
     right: 16,
