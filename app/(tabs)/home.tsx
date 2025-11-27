@@ -8,23 +8,55 @@ import {
   Alert,
   Image,
   Platform,
+  ScrollView,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../../lib/supabase";
 
-//  Definisikan tipe user
+// ICONS (untuk history)
+import {
+  Briefcase,
+  Wallet,
+  ShoppingCart,
+  Gift,
+} from "lucide-react-native";
+
+const iconMap: any = {
+  briefcase: Briefcase,
+  wallet: Wallet,
+  cart: ShoppingCart,
+  gift: Gift,
+};
+
+// -----------------------------------------------------
+// TIPE USER
+// -----------------------------------------------------
 type UserInfo = {
   username: string;
   avatar_url: string | null;
 } | null;
 
+// -----------------------------------------------------
+// MAIN COMPONENT
+// -----------------------------------------------------
 export default function Home() {
   const [menuVisible, setMenuVisible] = useState(false);
   const [user, setUser] = useState<UserInfo>(null);
-  const [loadingUser, setLoadingUser] = useState(true);
 
+  const [loadingUser, setLoadingUser] = useState(true);
+  const [userId, setUserId] = useState<string | null>(null);
+
+  // BALANCE
+  const [balance, setBalance] = useState<number | null>(null);
+
+  // TRANSACTIONS
+  const [transactions, setTransactions] = useState<any[]>([]);
+
+  // -----------------------------------------------------
+  // FETCH USER
+  // -----------------------------------------------------
   useEffect(() => {
     let mounted = true;
 
@@ -32,7 +64,9 @@ export default function Home() {
       try {
         const res = await supabase.auth.getUser();
         const fetchedUser = res?.data?.user ?? null;
+
         if (!mounted) return;
+
         if (fetchedUser) {
           setUser({
             username:
@@ -41,6 +75,8 @@ export default function Home() {
               "User",
             avatar_url: fetchedUser.user_metadata?.avatar_url ?? null,
           });
+
+          setUserId(fetchedUser.id);
         } else {
           setUser(null);
         }
@@ -58,6 +94,62 @@ export default function Home() {
     };
   }, []);
 
+  // -----------------------------------------------------
+  // FETCH BALANCE
+  // -----------------------------------------------------
+  const fetchBalance = async () => {
+    if (!userId) return;
+
+    const { data, error } = await supabase
+      .from("user_balance")
+      .select("balance")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (error) {
+      console.log("Balance fetch error:", error);
+      return;
+    }
+
+    setBalance(data?.balance ?? 0);
+  };
+
+  // Jalankan setelah userId ada
+  useEffect(() => {
+    if (!userId) return;
+    fetchBalance();
+    fetchHistory();
+  }, [userId]);
+
+  // -----------------------------------------------------
+  // FETCH HISTORY TRANSAKSI
+  // -----------------------------------------------------
+  const fetchHistory = async () => {
+    if (!userId) return;
+
+    const { data, error } = await supabase
+      .from("transactions")
+      .select(
+        `
+        id,
+        type,
+        amount,
+        created_at,
+        note,
+        categories(name, icon)
+      `
+      )
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false });
+
+    if (!error && data) {
+      setTransactions(data);
+    }
+  };
+
+  // -----------------------------------------------------
+  // LOGOUT
+  // -----------------------------------------------------
   const handleLogout = async () => {
     try {
       await supabase.auth.signOut();
@@ -68,75 +160,129 @@ export default function Home() {
     }
   };
 
-  const handleincome = () => {
+  // -----------------------------------------------------
+  // NAVIGATION
+  // -----------------------------------------------------
+  const handleIncome = () => {
     router.push("/(tabs)/income");
   };
 
   return (
     <View style={styles.container}>
-      {/* ===== HEADER BAR ===== */}
-      <View style={styles.header}>
-        {/* Avatar + Username */}
-        <View
-          style={styles.headerLeft}
-        >
-          {user?.avatar_url ? (
-            <Image source={{ uri: user.avatar_url }} style={styles.avatar} />
-          ) : (
-            <View style={styles.avatarPlaceholder}>
-              <Ionicons name="person-outline" size={22} color="white" />
-            </View>
-          )}
-          <Text style={styles.usernameText}>
-            {loadingUser ? "Memuat..." : user?.username ?? "Guest"}
-          </Text>
+      <ScrollView showsVerticalScrollIndicator={false}>
+        {/* ---------------- HEADER ---------------- */}
+        <View style={styles.header}>
+          <View style={styles.headerLeft}>
+            {user?.avatar_url ? (
+              <Image source={{ uri: user.avatar_url }} style={styles.avatar} />
+            ) : (
+              <View style={styles.avatarPlaceholder}>
+                <Ionicons name="person-outline" size={22} color="white" />
+              </View>
+            )}
+            <Text style={styles.usernameText}>
+              {loadingUser ? "Memuat..." : user?.username ?? "Guest"}
+            </Text>
+          </View>
+
+          <TouchableOpacity
+            style={styles.menuButton}
+            onPress={() => setMenuVisible(true)}
+          >
+            <Ionicons name="ellipsis-vertical" size={26} color="white" />
+          </TouchableOpacity>
         </View>
 
-        {/* Tombol menu */}
-        <TouchableOpacity
-          style={styles.menuButton}
-          onPress={() => setMenuVisible(true)}
-        >
-          <Ionicons name="ellipsis-vertical" size={26} color="white" />
-        </TouchableOpacity>
-      </View>
+        {/* ---------------- BODY ---------------- */}
+        <View style={styles.body}>
+          
+          {/* TOTAL UANG */}
+          <View style={styles.balanceCard}>
+            <Text style={styles.balanceLabel}>Total Uang Kamu</Text>
+            <Text style={styles.balanceValue}>
+              Rp {balance?.toLocaleString("id-ID") ?? "0"}
+            </Text>
+          </View>
 
-      {/* ===== BODY ===== */}
-<View style={styles.body}>
-  
-  <Image
-    source={require("../../assets/images/GreenBackground.png")}
-    style={styles.backgroundImage}
-  />  
+          <Image
+            source={require("../../assets/images/GreenBackground.png")}
+            style={styles.backgroundImage}
+          />
 
-<TouchableOpacity style={styles.buttontambah} onPress={handleincome}>
-    <Image source={require("../../assets/images/arrowdown.png")}
-    style={styles.arrowDown}
-    >
-    </Image>
-    <Text style={styles.texttambah}>Tambah Pemasukan</Text>
-  </TouchableOpacity>
+          {/* Tombol tambah pemasukan */}
+          <TouchableOpacity style={styles.buttontambah} onPress={handleIncome}>
+            <Image
+              source={require("../../assets/images/arrowdown.png")}
+              style={styles.arrowDown}
+            />
+            <Text style={styles.texttambah}>Tambah Pemasukan</Text>
+          </TouchableOpacity>
 
-  <TouchableOpacity style={styles.buttonkurang}>
-    <Image source={require("../../assets/images/arrowup.png")}
-    style={styles.arrowup}
-    >
-    </Image>
-    <Text style={styles.texttambah}>Tambah Pengeluaran</Text>
-  </TouchableOpacity>
+          {/* Tombol tambah pengeluaran */}
+          <TouchableOpacity style={styles.buttonkurang}>
+            <Image
+              source={require("../../assets/images/arrowup.png")}
+              style={styles.arrowup}
+            />
+            <Text style={styles.texttambah}>Tambah Pengeluaran</Text>
+          </TouchableOpacity>
 
-  {/* Analisis + Tombol di kiri-kanan */}
-  <View style={styles.analisisContainer}>
-    <Text style={styles.analisisText}>Analisis Bulan Ini</Text>
+          {/* Analisis */}
+          <View style={styles.analisisContainer}>
+            <Text style={styles.analisisText}>Analisis Bulan Ini</Text>
 
-    <TouchableOpacity style={styles.detailButton}>
-      <Text style={styles.detailText}>Lihat Detail</Text>
-    </TouchableOpacity>
-  </View>
-</View>
+            <TouchableOpacity style={styles.detailButton}>
+              <Text style={styles.detailText}>Lihat Detail</Text>
+            </TouchableOpacity>
+          </View>
 
+          {/* ---------------- HISTORY ---------------- */}
+          <View style={styles.historyWrapper}>
+            <Text style={styles.historyTitle}>Riwayat Keuangan</Text>
 
-      {/* ===== MENU POP-UP ===== */}
+            {transactions.length === 0 && (
+              <Text style={{ color: "#777" }}>Belum ada transaksi.</Text>
+            )}
+
+            {transactions.map((item) => {
+              const IconComponent =
+                iconMap[item.categories?.icon] || Wallet;
+
+              return (
+                <View key={item.id} style={styles.historyCard}>
+                  <View style={styles.iconBox}>
+                    <IconComponent size={22} color="white" />
+                  </View>
+
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.historyName}>
+                      {item.categories?.name || "Tanpa Kategori"}
+                    </Text>
+                    <Text style={styles.historyType}>
+                      {item.type === "income" ? "Pemasukan" : "Pengeluaran"}
+                    </Text>
+                    {item.note && (
+                      <Text style={styles.historyNote}>{item.note}</Text>
+                    )}
+                  </View>
+
+                  <Text
+                    style={[
+                      styles.historyAmount,
+                      { color: item.type === "income" ? "#44DA76" : "#FF5E5E" },
+                    ]}
+                  >
+                    {item.type === "income" ? "+" : "-"} Rp{" "}
+                    {item.amount.toLocaleString("id-ID")}
+                  </Text>
+                </View>
+              );
+            })}
+          </View>
+        </View>
+      </ScrollView>
+
+      {/* ---------------- MENU POPUP ---------------- */}
       <Modal
         transparent
         visible={menuVisible}
@@ -150,6 +296,7 @@ export default function Home() {
         >
           <View style={styles.menuWrapper}>
             <View style={styles.menuContainer}>
+              
               <TouchableOpacity
                 style={styles.menuItem}
                 onPress={() => {
@@ -160,13 +307,12 @@ export default function Home() {
                 <Ionicons name="person-outline" size={20} color="white" />
                 <Text style={styles.menuProfile}>Pengaturan Profil</Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.menuItem}
-                onPress={handleLogout}
-              >
+
+              <TouchableOpacity style={styles.menuItem} onPress={handleLogout}>
                 <Ionicons name="log-out-outline" size={20} color="#F55353" />
                 <Text style={styles.menuLogout}>Keluar</Text>
               </TouchableOpacity>
+
             </View>
           </View>
         </TouchableOpacity>
@@ -175,31 +321,28 @@ export default function Home() {
   );
 }
 
+// -----------------------------------------------------
+// STYLES
+// -----------------------------------------------------
+
 const HEADER_TOP_PADDING = Platform.OS === "android" ? 20 : 50;
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#151716",
-  },
+  container: { flex: 1, backgroundColor: "#151716" },
+
   header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 16,
     paddingTop: HEADER_TOP_PADDING,
-
     marginTop: 25,
   },
-  headerLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  avatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 30,
-  },
+
+  headerLeft: { flexDirection: "row", alignItems: "center" },
+
+  avatar: { width: 50, height: 50, borderRadius: 30 },
+
   avatarPlaceholder: {
     width: 50,
     height: 50,
@@ -208,30 +351,47 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
+
   usernameText: {
     color: "white",
     fontSize: 18,
     fontWeight: "bold",
     marginLeft: 10,
   },
-  menuButton: {
-    padding: 6,
+
+  body: { flex: 1, alignItems: "center", top: 40 },
+
+  menuButton: { padding: 6 },
+  modalOverlay: { flex: 1 },
+
+  // BALANCE CARD
+  balanceCard: {
+    width: "90%",
+    backgroundColor: "rgba(0,0,0,0.35)",
+    padding: 20,
+    borderRadius: 16,
+    position: "absolute",
+    top: 130,
+    zIndex: 200,
   },
-  body: {
-    flex: 1,
-    alignItems: "center",
-    top: 40,
+  balanceLabel: {
+    color: "#ccc",
+    fontSize: 14,
   },
-  modalOverlay: {
-    flex: 1,
+  balanceValue: {
+    color: "white",
+    fontSize: 30,
+    fontWeight: "bold",
+    marginTop: 4,
   },
 
   backgroundImage: {
-     width: "90%",                     // persegi panjang di tengah
-     height: 210,
+    width: "90%",
+    height: 210,
     justifyContent: "center",
     zIndex: 0,
   },
+
   buttontambah: {
     width: 45,
     height: 45,
@@ -245,11 +405,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 10,
   },
-  arrowDown: {
-    width: 25,
-    height: 25,
-    marginLeft: 110,
-  },
+
+  arrowDown: { width: 25, height: 25, marginLeft: 110 },
+
   texttambah: {
     color: "white",
     fontSize: 14,
@@ -257,6 +415,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
     top: -2,
   },
+
   buttonkurang: {
     width: 45,
     height: 45,
@@ -271,69 +430,79 @@ const styles = StyleSheet.create({
     gap: 10,
     marginBottom: 30,
   },
-  arrowup: {
-    width: 25,
-    height: 25,
-    marginLeft: 110,
+
+  arrowup: { width: 25, height: 25, marginLeft: 110 },
+
+  analisisContainer: {
+    width: "90%",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: 35,
   },
 
+  analisisText: { color: "white", fontSize: 18 },
 
- analisisContainer: {
-  width: "90%",                  // sejajar dengan lebar card
-  flexDirection: "row",
-  justifyContent: "space-between",
-  alignItems: "center",
-  marginTop: 35,
-},
+  detailButton: { paddingVertical: 8, paddingHorizontal: 14, borderRadius: 8 },
 
-analisisText: {
-  color: "white",
-  fontSize: 18,
-},
+  detailText: { color: "#44DA76", fontSize: 14, fontWeight: "600" },
 
-detailButton: {
-  paddingVertical: 8,
-  paddingHorizontal: 14,
-  borderRadius: 8,
-},
+  menuWrapper: { position: "absolute", right: 16, top: HEADER_TOP_PADDING + 40 },
 
-detailText: {
-  color: "#44DA76",
-  fontSize: 14,
-  fontWeight: "600",
-},
-
-
-  menuWrapper: {
-    position: "absolute",
-    right: 16,
-    top: HEADER_TOP_PADDING + 40,
-  },
   menuContainer: {
     backgroundColor: "#222",
     borderRadius: 10,
     paddingVertical: 6,
     minWidth: 160,
-    elevation: 6,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 6,
   },
+
   menuItem: {
     flexDirection: "row",
     alignItems: "center",
     paddingVertical: 10,
     paddingHorizontal: 12,
   },
-  menuProfile: {
+
+  menuProfile: { color: "white", marginLeft: 10, fontSize: 14 },
+
+  menuLogout: { color: "#F55353", marginLeft: 10, fontSize: 14 },
+
+  // HISTORY
+  historyWrapper: {
+    width: "90%",
+    marginTop: 30,
+  },
+
+  historyTitle: {
     color: "white",
-    marginLeft: 10,
-    fontSize: 14,
+    fontSize: 18,
+    marginBottom: 12,
   },
-  menuLogout: {
-    color: "#F55353",
-    marginLeft: 10,
-    fontSize: 14,
+
+  historyCard: {
+    backgroundColor: "#252525",
+    padding: 14,
+    borderRadius: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 12,
   },
+
+  iconBox: {
+    width: 45,
+    height: 45,
+    backgroundColor: "#264E6E",
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+
+  historyName: { color: "white", fontSize: 16, fontWeight: "600" },
+
+  historyType: { color: "#888", fontSize: 13 },
+
+  historyNote: { color: "#aaa", fontSize: 13, marginTop: 2 },
+
+  historyAmount: { fontSize: 17, fontWeight: "700", marginLeft: 10 },
 });

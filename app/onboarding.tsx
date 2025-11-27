@@ -90,7 +90,7 @@ const Onboarding: React.FC = () => {
     if (currentIndex < slides.length - 1) {
       flatListRef.current?.scrollToIndex({ index: currentIndex + 1 });
     } else {
-      router.push('/(auth)/auth'); 
+      router.push('/auth'); 
     }
   };
 
