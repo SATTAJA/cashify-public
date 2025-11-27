@@ -68,6 +68,10 @@ export default function Home() {
     }
   };
 
+  const handleincome = () => {
+    router.push("/(tabs)/income");
+  };
+
   return (
     <View style={styles.container}>
       {/* ===== HEADER BAR ===== */}
@@ -103,7 +107,23 @@ export default function Home() {
   <Image
     source={require("../../assets/images/GreenBackground.png")}
     style={styles.backgroundImage}
-  />
+  />  
+
+<TouchableOpacity style={styles.buttontambah} onPress={handleincome}>
+    <Image source={require("../../assets/images/arrowdown.png")}
+    style={styles.arrowDown}
+    >
+    </Image>
+    <Text style={styles.texttambah}>Tambah Pemasukan</Text>
+  </TouchableOpacity>
+
+  <TouchableOpacity style={styles.buttonkurang}>
+    <Image source={require("../../assets/images/arrowup.png")}
+    style={styles.arrowup}
+    >
+    </Image>
+    <Text style={styles.texttambah}>Tambah Pengeluaran</Text>
+  </TouchableOpacity>
 
   {/* Analisis + Tombol di kiri-kanan */}
   <View style={styles.analisisContainer}>
@@ -210,8 +230,54 @@ const styles = StyleSheet.create({
      width: "90%",                     // persegi panjang di tengah
      height: 210,
     justifyContent: "center",
-
+    zIndex: 0,
   },
+  buttontambah: {
+    width: 45,
+    height: 45,
+    top: -72,
+    left: -130,
+    zIndex: 100,
+    backgroundColor: "rgba(255, 255, 255, 0.3)",
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 10,
+  },
+  arrowDown: {
+    width: 25,
+    height: 25,
+    marginLeft: 110,
+  },
+  texttambah: {
+    color: "white",
+    fontSize: 14,
+    width: 100,
+    textAlign: "center",
+    top: -2,
+  },
+  buttonkurang: {
+    width: 45,
+    height: 45,
+    marginTop: -117,
+    left: 42,
+    zIndex: 100,
+    backgroundColor: "rgba(255, 255, 255, 0.3)",
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 30,
+  },
+  arrowup: {
+    width: 25,
+    height: 25,
+    marginLeft: 110,
+  },
+
+
  analisisContainer: {
   width: "90%",                  // sejajar dengan lebar card
   flexDirection: "row",

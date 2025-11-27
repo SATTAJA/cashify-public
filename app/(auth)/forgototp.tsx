@@ -11,7 +11,7 @@ import {
   TextInputKeyPressEventData,
   Platform,
 } from "react-native";
-import { ArrowLeft } from "lucide-react-native";
+import { ArrowLeft, ChevronLeft } from "lucide-react-native";
 import { supabase } from "../../lib/supabase";
 import { useLocalSearchParams, router } from "expo-router";
 
@@ -108,7 +108,7 @@ const ForgotOtp: React.FC = () => {
   return (
     <View style={styles.container}>
       <TouchableOpacity onPress={() => router.back()} style={styles.back}>
-        <ArrowLeft color="white" size={35} style={{ marginTop: 20 }} />
+        <ChevronLeft color="#44DA76" size={35} style={{ marginTop: 20 }} />
       </TouchableOpacity>
 
       <Text style={styles.title}>Masukkan OTP</Text>

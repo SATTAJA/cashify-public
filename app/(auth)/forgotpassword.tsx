@@ -7,7 +7,7 @@ import {
   ActivityIndicator,
   StyleSheet,
 } from "react-native";
-import { ArrowLeft, Eye, EyeOff } from "lucide-react-native";
+import { ArrowLeft, ChevronLeft, Eye, EyeOff } from "lucide-react-native";
 import { supabase } from "../../lib/supabase";
 import { router } from "expo-router";
 
@@ -39,7 +39,7 @@ const ForgotPassword = () => {
     <View style={styles.container}>
       {/* Tombol Kembali */}
       <TouchableOpacity onPress={() => router.back()} style={styles.back}>
-        <ArrowLeft color="white" size={35} style={{ marginTop: 20 }} />
+        <ChevronLeft color="white" size={35} style={{ marginTop: 20 }} />
       </TouchableOpacity>
 
       <Text style={styles.title}>Buat Password Baru</Text>

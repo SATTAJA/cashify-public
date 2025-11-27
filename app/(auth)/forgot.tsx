@@ -8,7 +8,7 @@ import {
   StyleSheet,
   Modal,
 } from "react-native";
-import { ArrowLeft, CheckCircle, XCircle, Info } from "lucide-react-native";
+import { ArrowLeft, CheckCircle, XCircle, Info, ChevronLeft } from "lucide-react-native";
 import { supabase } from "../../lib/supabase";
 import { router } from "expo-router";
 
@@ -49,7 +49,7 @@ const forgot = () => {
   return (
     <View style={styles.container}>
       <TouchableOpacity onPress={() => router.replace("/auth")} style={styles.back}>
-        <ArrowLeft color="white" size={35} style={{ marginTop: 20 }} />
+        <ChevronLeft color="#44DA76" size={35} style={{ marginTop: 20 }} />
       </TouchableOpacity>
 
       <Text style={styles.title}>Lupa Kata Sandi</Text>

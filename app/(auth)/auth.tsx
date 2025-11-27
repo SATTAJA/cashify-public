@@ -18,6 +18,7 @@ import {
   XCircle,
   CheckCircle,
   Info,
+  ChevronLeft,
 } from "lucide-react-native";
 import { supabase } from "../../lib/supabase";
 
@@ -149,7 +150,7 @@ const AuthPage = () => {
   return (
     <View style={styles.container}>
       <TouchableOpacity onPress={handleBack} style={styles.back}>
-        <ArrowLeft color="white" size={35} style={{ marginTop: 20 }} />
+        <ChevronLeft color="#44DA76" size={35} style={{ marginTop: 20 }} />
       </TouchableOpacity>
 
       <Text style={styles.title}>
