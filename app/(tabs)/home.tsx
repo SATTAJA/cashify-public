@@ -198,7 +198,6 @@ export default function Home() {
           
           {/* TOTAL UANG */}
           <View style={styles.balanceCard}>
-            <Text style={styles.balanceLabel}>Total Uang Kamu</Text>
             <Text style={styles.balanceValue}>
               Rp {balance?.toLocaleString("id-ID") ?? "0"}
             </Text>
@@ -261,9 +260,9 @@ export default function Home() {
                     <Text style={styles.historyType}>
                       {item.type === "income" ? "Pemasukan" : "Pengeluaran"}
                     </Text>
-                    {item.note && (
+                    {/* {item.note && (
                       <Text style={styles.historyNote}>{item.note}</Text>
-                    )}
+                    )} */}
                   </View>
 
                   <Text
@@ -367,22 +366,18 @@ const styles = StyleSheet.create({
   // BALANCE CARD
   balanceCard: {
     width: "90%",
-    backgroundColor: "rgba(0,0,0,0.35)",
     padding: 20,
     borderRadius: 16,
     position: "absolute",
-    top: 130,
+    top: 45,
     zIndex: 200,
-  },
-  balanceLabel: {
-    color: "#ccc",
-    fontSize: 14,
   },
   balanceValue: {
     color: "white",
-    fontSize: 30,
+    fontSize: 32,
     fontWeight: "bold",
     marginTop: 4,
+    textAlign: "center",
   },
 
   backgroundImage: {
