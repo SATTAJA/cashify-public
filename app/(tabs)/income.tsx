@@ -8,31 +8,56 @@ import {
   ScrollView,
   Alert,
 } from "react-native";
-import { ChevronLeft, Wallet, Gift, BriefcaseBusiness, PlusCircle } from "lucide-react-native";
+import {
+  ChevronLeft,
+  BriefcaseBusiness,
+  Gift,
+  Wallet,
+  PlusCircle,
+  LucideLandmark,
+} from "lucide-react-native";
 import { router } from "expo-router";
 import { supabase } from "../../lib/supabase";
 
 const PRESET_CATEGORIES = [
-  { name: "Gaji", icon: <BriefcaseBusiness color="white" size={20} /> },
-  { name: "THR", icon: <Gift color="white" size={20} /> },
-  { name: "Bonus", icon: <Wallet color="white" size={20} /> },
-  { name: "Lainnya", icon: <PlusCircle color="white" size={20} /> },
+  { name: "Gaji", icon: <BriefcaseBusiness color="#74C1FF" size={20} /> },
+  { name: "THR", icon: <Gift color="#74C1FF" size={20} /> },
+  { name: "Bonus", icon: <Wallet color="#74C1FF" size={20} /> },
+  { name: "Tabungan", icon: <LucideLandmark color="#74C1FF" size={20} /> },
+  { name: "Lainnya", icon: <PlusCircle color="#74C1FF" size={20} /> },
 ];
 
+// Format angka jadi "15.000" / "2.000.000"
+const formatIDR = (value: string) => {
+  const numeric = value.replace(/\D/g, "");
+  return numeric.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+};
+
 const AddIncome = () => {
-  const [amount, setAmount] = useState("");
+  // rawAmount untuk database
+  const [rawAmount, setRawAmount] = useState("");
+
+  // displayAmount untuk tampilan input
+  const [displayAmount, setDisplayAmount] = useState("");
+
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [note, setNote] = useState("");
   const [loading, setLoading] = useState(false);
 
   const handleBack = () => router.replace("/home");
 
-  // Insert kategori ke database kalau belum ada
+  // Input nominal handler
+  const handleAmountChange = (text: string) => {
+    const clean = text.replace(/\D/g, ""); // hanya angka
+    setRawAmount(clean); // untuk DB
+    setDisplayAmount(formatIDR(clean)); // tampilan
+  };
+
+  // Pastikan kategori sudah ada di DB / insert baru
   const ensureCategoryExists = async (categoryName: string) => {
     const user = await supabase.auth.getUser();
     const userId = user.data.user?.id;
 
-    // cek kategori
     const { data: existing } = await supabase
       .from("categories")
       .select("id")
@@ -41,10 +66,8 @@ const AddIncome = () => {
       .eq("user_id", userId)
       .maybeSingle();
 
-    // sudah ada → kembalikan id
     if (existing) return existing.id;
 
-    // kalau belum ada → insert
     const { data, error } = await supabase
       .from("categories")
       .insert([
@@ -59,23 +82,22 @@ const AddIncome = () => {
 
     if (error) {
       console.log("Insert category error:", error);
-      Alert.alert("Error", "Gagal membuat kategori");
+      Alert.alert("Error", "Gagal membuat kategori.");
       return null;
     }
 
-    return data.id; // return id kategori baru
+    return data.id;
   };
 
-  // Simpan pemasukan
+  // Save transaksi
   const handleSave = async () => {
-    if (!amount || !selectedCategory) {
+    if (!rawAmount || !selectedCategory) {
       Alert.alert("Error", "Nominal & kategori harus diisi.");
       return;
     }
 
     setLoading(true);
 
-    // Pastikan kategori tersedia di DB
     const categoryId = await ensureCategoryExists(selectedCategory);
     if (!categoryId) {
       setLoading(false);
@@ -88,7 +110,7 @@ const AddIncome = () => {
     const { error } = await supabase.from("transactions").insert([
       {
         user_id: userId,
-        amount: parseFloat(amount),
+        amount: parseFloat(rawAmount), // ANGKA MURNI
         category_id: categoryId,
         type: "income",
         note,
@@ -115,44 +137,25 @@ const AddIncome = () => {
           <ChevronLeft color="#44DA76" size={35} />
         </TouchableOpacity>
 
-        <Text style={styles.title}>Tambah Pemasukan</Text>
+        <Text style={styles.title}>Pemasukan</Text>
       </View>
 
-      {/* Nominal */}
-      <Text style={styles.label}>Nominal</Text>
-      <TextInput
-        style={styles.input}
-        keyboardType="numeric"
-        placeholder="Masukkan jumlah"
-        placeholderTextColor="#777"
-        value={amount}
-        onChangeText={setAmount}
-      />
+      {/* Input Nominal */}
+      <View style={styles.nominalWrapper}>
+        <Text style={styles.rp}>Rp</Text>
 
-      {/* Kategori tombol */}
-      <Text style={styles.label}>Kategori</Text>
-      <View style={styles.categoryWrapper}>
-        {PRESET_CATEGORIES.map((cat) => (
-          <TouchableOpacity
-            key={cat.name}
-            style={[
-              styles.categoryButton,
-              selectedCategory === cat.name && styles.categorySelected,
-            ]}
-            onPress={() => setSelectedCategory(cat.name)}
-          >
-            {cat.icon}
-            <Text
-              style={[
-                styles.categoryText,
-                selectedCategory === cat.name && { color: "#151716" },
-              ]}
-            >
-              {cat.name}
-            </Text>
-          </TouchableOpacity>
-        ))}
+        <TextInput
+          style={styles.amountInput}
+          keyboardType="number-pad"
+          placeholder="...."
+          placeholderTextColor="#555"
+          value={displayAmount}
+          onChangeText={handleAmountChange}
+          maxLength={15}
+        />
       </View>
+
+      <Text style={styles.labelInfo}>Isi nominal pemasukan</Text>
 
       {/* Note */}
       <Text style={styles.label}>Catatan (Opsional)</Text>
@@ -165,13 +168,42 @@ const AddIncome = () => {
         multiline
       />
 
-      {/* Save */}
+      {/* Kategori */}
+      <Text style={styles.label}>Kategori</Text>
+
+      <View style={styles.categoryWrapper}>
+        {PRESET_CATEGORIES.map((cat) => (
+          <TouchableOpacity
+            key={cat.name}
+            style={[
+              styles.categoryButton,
+              selectedCategory === cat.name && styles.categorySelected,
+            ]}
+            onPress={() => setSelectedCategory(cat.name)}
+          >
+            <View style={styles.categoryIcon}>
+            {cat.icon}
+            </View>
+            <Text
+              style={[
+                styles.categoryText,
+              ]}
+            >
+              {cat.name}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      {/* Save Button */}
       <TouchableOpacity
         style={[styles.saveButton, loading && { opacity: 0.5 }]}
         onPress={handleSave}
         disabled={loading}
       >
-        <Text style={styles.saveText}>{loading ? "Menyimpan..." : "Simpan"}</Text>
+        <Text style={styles.saveText}>
+          {loading ? "Menyimpan..." : "Simpan"}
+        </Text>
       </TouchableOpacity>
     </ScrollView>
   );
@@ -201,22 +233,43 @@ const styles = StyleSheet.create({
   title: {
     color: "white",
     fontSize: 24,
+  },
+
+  /* NOMINAL STYLE */
+  nominalWrapper: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    marginTop: 10,
+  },
+
+  rp: {
+    color: "gray",
+    fontSize: 36,
+    marginRight: 10,
     fontWeight: "bold",
   },
 
+  amountInput: {
+    color: "white",
+    fontSize: 40,
+    minWidth: 150,
+    textAlign: "left",
+  },
+
+  labelInfo: {
+    color: "#44DA76",
+    fontSize: 15,
+    marginTop: 8,
+    textAlign: "center",
+  },
+
+  /* NOTE */
   label: {
     color: "#44DA76",
     fontSize: 15,
-    marginBottom: 6,
-    marginTop: 20,
-  },
-
-  input: {
-    backgroundColor: "#1E201F",
-    borderRadius: 10,
-    padding: 12,
-    color: "white",
-    fontSize: 16,
+    marginBottom: 10,
+    marginTop: 25,
   },
 
   inputNote: {
@@ -229,11 +282,16 @@ const styles = StyleSheet.create({
     textAlignVertical: "top",
   },
 
+  /* CATEGORY */
   categoryWrapper: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 12,
-    marginTop: 8,
+  },
+  categoryIcon: {
+    backgroundColor: "#264E6E",
+    borderRadius: 10,
+    padding: 10,
   },
 
   categoryButton: {
@@ -243,11 +301,20 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 14,
     borderRadius: 12,
-    backgroundColor: "#1E201F",
+    backgroundColor: "#252525",
   },
 
   categorySelected: {
-    backgroundColor: "#44DA76",
+    borderColor: "#44DA76",
+    borderWidth: 1,
+    shadowColor: "#44DA76",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
   },
 
   categoryText: {
@@ -255,11 +322,13 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
 
+  /* SAVE BUTTON */
   saveButton: {
     backgroundColor: "#44DA76",
     paddingVertical: 14,
     borderRadius: 12,
     marginTop: 40,
+    marginBottom: 40,
     alignItems: "center",
   },
 
