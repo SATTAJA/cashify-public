@@ -8,6 +8,7 @@ import {
   ScrollView,
   Alert,
 } from "react-native";
+
 import {
   ChevronLeft,
   BriefcaseBusiness,
@@ -16,6 +17,7 @@ import {
   PlusCircle,
   LucideLandmark,
 } from "lucide-react-native";
+
 import { router } from "expo-router";
 import { supabase } from "../../lib/supabase";
 
@@ -27,17 +29,14 @@ const PRESET_CATEGORIES = [
   { name: "Lainnya", icon: <PlusCircle color="#74C1FF" size={20} /> },
 ];
 
-// Format angka jadi "15.000" / "2.000.000"
+// Format angka: 15000 → 15.000
 const formatIDR = (value: string) => {
   const numeric = value.replace(/\D/g, "");
   return numeric.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
 };
 
 const AddIncome = () => {
-  // rawAmount untuk database
   const [rawAmount, setRawAmount] = useState("");
-
-  // displayAmount untuk tampilan input
   const [displayAmount, setDisplayAmount] = useState("");
 
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -46,14 +45,13 @@ const AddIncome = () => {
 
   const handleBack = () => router.replace("/home");
 
-  // Input nominal handler
   const handleAmountChange = (text: string) => {
     const clean = text.replace(/\D/g, ""); // hanya angka
-    setRawAmount(clean); // untuk DB
-    setDisplayAmount(formatIDR(clean)); // tampilan
+    setRawAmount(clean);
+    setDisplayAmount(formatIDR(clean));
   };
 
-  // Pastikan kategori sudah ada di DB / insert baru
+  // Check kategori sudah ada di DB
   const ensureCategoryExists = async (categoryName: string) => {
     const user = await supabase.auth.getUser();
     const userId = user.data.user?.id;
@@ -81,7 +79,6 @@ const AddIncome = () => {
       .single();
 
     if (error) {
-      console.log("Insert category error:", error);
       Alert.alert("Error", "Gagal membuat kategori.");
       return null;
     }
@@ -89,7 +86,6 @@ const AddIncome = () => {
     return data.id;
   };
 
-  // Save transaksi
   const handleSave = async () => {
     if (!rawAmount || !selectedCategory) {
       Alert.alert("Error", "Nominal & kategori harus diisi.");
@@ -110,7 +106,7 @@ const AddIncome = () => {
     const { error } = await supabase.from("transactions").insert([
       {
         user_id: userId,
-        amount: parseFloat(rawAmount), // ANGKA MURNI
+        amount: parseFloat(rawAmount),
         category_id: categoryId,
         type: "income",
         note,
@@ -120,7 +116,6 @@ const AddIncome = () => {
     setLoading(false);
 
     if (error) {
-      console.log(error);
       Alert.alert("Error", "Gagal menambahkan pemasukan.");
       return;
     }
@@ -140,7 +135,7 @@ const AddIncome = () => {
         <Text style={styles.title}>Pemasukan</Text>
       </View>
 
-      {/* Input Nominal */}
+      {/* Nominal */}
       <View style={styles.nominalWrapper}>
         <Text style={styles.rp}>Rp</Text>
 
@@ -157,7 +152,7 @@ const AddIncome = () => {
 
       <Text style={styles.labelInfo}>Isi nominal pemasukan</Text>
 
-      {/* Note */}
+      {/* Catatan */}
       <Text style={styles.label}>Catatan (Opsional)</Text>
       <TextInput
         style={styles.inputNote}
@@ -181,16 +176,8 @@ const AddIncome = () => {
             ]}
             onPress={() => setSelectedCategory(cat.name)}
           >
-            <View style={styles.categoryIcon}>
-            {cat.icon}
-            </View>
-            <Text
-              style={[
-                styles.categoryText,
-              ]}
-            >
-              {cat.name}
-            </Text>
+            <View style={styles.categoryIcon}>{cat.icon}</View>
+            <Text style={styles.categoryText}>{cat.name}</Text>
           </TouchableOpacity>
         ))}
       </View>
@@ -235,7 +222,7 @@ const styles = StyleSheet.create({
     fontSize: 24,
   },
 
-  /* NOMINAL STYLE */
+  /* NOMINAL */
   nominalWrapper: {
     flexDirection: "row",
     justifyContent: "center",
@@ -253,7 +240,7 @@ const styles = StyleSheet.create({
   amountInput: {
     color: "white",
     fontSize: 40,
-    minWidth: 150,
+    width: "70%",
     textAlign: "left",
   },
 
@@ -264,7 +251,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
 
-  /* NOTE */
+  /* CATATAN */
   label: {
     color: "#44DA76",
     fontSize: 15,
@@ -288,11 +275,6 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: 12,
   },
-  categoryIcon: {
-    backgroundColor: "#264E6E",
-    borderRadius: 10,
-    padding: 10,
-  },
 
   categoryButton: {
     flexDirection: "row",
@@ -308,13 +290,14 @@ const styles = StyleSheet.create({
     borderColor: "#44DA76",
     borderWidth: 1,
     shadowColor: "#44DA76",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
     shadowOpacity: 0.25,
-    shadowRadius: 3.84,
     elevation: 5,
+  },
+
+  categoryIcon: {
+    backgroundColor: "#264E6E",
+    borderRadius: 10,
+    padding: 10,
   },
 
   categoryText: {

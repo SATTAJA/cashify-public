@@ -166,6 +166,9 @@ export default function Home() {
   const handleIncome = () => {
     router.push("/(tabs)/income");
   };
+  const handleExpense = () => {
+    router.push("/(tabs)/expense");
+  };
 
   return (
     <View style={styles.container}>
@@ -218,7 +221,7 @@ export default function Home() {
           </TouchableOpacity>
 
           {/* Tombol tambah pengeluaran */}
-          <TouchableOpacity style={styles.buttonkurang}>
+          <TouchableOpacity style={styles.buttonkurang} onPress={handleExpense}>
             <Image
               source={require("../../assets/images/arrowup.png")}
               style={styles.arrowup}
