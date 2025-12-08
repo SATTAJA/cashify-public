@@ -310,7 +310,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#44DA76",
     paddingVertical: 14,
     borderRadius: 12,
-    marginTop: 40,
+    marginTop: 276,
     marginBottom: 40,
     alignItems: "center",
   },

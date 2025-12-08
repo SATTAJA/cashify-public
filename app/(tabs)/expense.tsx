@@ -24,14 +24,14 @@ import { router } from "expo-router";
 import { supabase } from "../../lib/supabase";
 
 const PRESET_CATEGORIES = [
-  { name: "Belanja Bulanan", icon: <ShoppingCart color="white" size={20} /> },
-  { name: "Makan & Minum", icon: <Utensils color="white" size={20} /> },
-  { name: "Kesehatan", icon: <Stethoscope color="white" size={20} /> },
-  { name: "Hiburan", icon: <Gamepad2 color="white" size={20} /> },
-  { name: "Transportasi", icon: <Car color="white" size={20} /> },
-  { name: "Pakaian", icon: <Shirt color="white" size={20} /> },
-  { name: "Barang", icon: <Package color="white" size={20} /> },
-  { name: "Lainnya", icon: <PlusCircle color="white" size={20} /> },
+  { name: "Belanja Bulanan", icon: <ShoppingCart color="#74C1FF" size={20} /> },
+  { name: "Makan & Minum", icon: <Utensils color="#74C1FF" size={20} /> },
+  { name: "Kesehatan", icon: <Stethoscope color="#74C1FF" size={20} /> },
+  { name: "Hiburan", icon: <Gamepad2 color="#74C1FF" size={20} /> },
+  { name: "Transportasi", icon: <Car color="#74C1FF" size={20} /> },
+  { name: "Pakaian", icon: <Shirt color="#74C1FF" size={20} /> },
+  { name: "Barang", icon: <Package color="#74C1FF" size={20} /> },
+  { name: "Lainnya", icon: <PlusCircle color="#74C1FF" size={20} /> },
 ];
 
 // Format angka jadi 15.000 / 2.000.000
@@ -131,7 +131,7 @@ const AddExpense = () => {
   };
 
   return (
-    <ScrollView style={styles.container}>
+    <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.back} onPress={handleBack}>
@@ -198,7 +198,7 @@ const AddExpense = () => {
           {loading ? "Menyimpan..." : "Simpan"}
         </Text>
       </TouchableOpacity>
-    </ScrollView>
+    </View>
   );
 };
 
@@ -300,7 +300,7 @@ const styles = StyleSheet.create({
   },
 
   categoryIcon: {
-    backgroundColor: "#403F3F",
+    backgroundColor: "#264E6E",
     borderRadius: 10,
     padding: 10,
   },
