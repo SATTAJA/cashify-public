@@ -1,3 +1,7 @@
+// =======================
+// HOME PAGE FINAL VERSION
+// =======================
+
 import React, { useState, useEffect } from "react";
 import {
   View,
@@ -14,7 +18,9 @@ import { router } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../../lib/supabase";
 
-// IKON SESUAI INCOME PAGE
+// ==============================
+// IKON INCOME
+// ==============================
 import {
   BriefcaseBusiness,
   Gift,
@@ -23,12 +29,36 @@ import {
   LucideLandmark,
 } from "lucide-react-native";
 
-const categoryIconStyleMap: any = {
+// ==============================
+// IKON EXPENSE
+// ==============================
+import {
+  ShoppingCart,
+  Utensils,
+  Stethoscope,
+  Gamepad2,
+  Car,
+  Shirt,
+  Package,
+} from "lucide-react-native";
+
+const incomeIconMap: any = {
   Gaji: <BriefcaseBusiness color="#74C1FF" size={22} />,
   THR: <Gift color="#74C1FF" size={22} />,
   Bonus: <Wallet color="#74C1FF" size={22} />,
   Tabungan: <LucideLandmark color="#74C1FF" size={22} />,
   Lainnya: <PlusCircle color="#74C1FF" size={22} />,
+};
+
+const expenseIconMap: any = {
+  "Belanja Bulanan": <ShoppingCart color="#74C1FF" size={20} />,
+  "Makan & Minum": <Utensils color="#74C1FF" size={20} />,
+  Kesehatan: <Stethoscope color="#74C1FF" size={20} />,
+  Hiburan: <Gamepad2 color="#74C1FF" size={20} />,
+  Transportasi: <Car color="#74C1FF" size={20} />,
+  Pakaian: <Shirt color="#74C1FF" size={20} />,
+  Barang: <Package color="#74C1FF" size={20} />,
+  Lainnya: <PlusCircle color="#74C1FF" size={20} />,
 };
 
 type UserInfo = {
@@ -39,16 +69,15 @@ type UserInfo = {
 export default function Home() {
   const [menuVisible, setMenuVisible] = useState(false);
   const [user, setUser] = useState<UserInfo>(null);
-
   const [loadingUser, setLoadingUser] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
 
   const [balance, setBalance] = useState<number | null>(null);
   const [transactions, setTransactions] = useState<any[]>([]);
 
-  // -----------------------------------------------------
+  // =========================
   // FETCH USER
-  // -----------------------------------------------------
+  // =========================
   useEffect(() => {
     let mounted = true;
 
@@ -73,7 +102,6 @@ export default function Home() {
           setUser(null);
         }
       } catch (err) {
-        console.log("fetchUser error", err);
         setUser(null);
       } finally {
         if (mounted) setLoadingUser(false);
@@ -86,30 +114,28 @@ export default function Home() {
     };
   }, []);
 
-  // -----------------------------------------------------
+  // =========================
   // FETCH BALANCE
-  // -----------------------------------------------------
+  // =========================
   const fetchBalance = async () => {
     if (!userId) return;
 
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from("user_balance")
       .select("balance")
       .eq("user_id", userId)
       .maybeSingle();
 
-    if (!error) {
-      setBalance(data?.balance ?? 0);
-    }
+    setBalance(data?.balance ?? 0);
   };
 
-  // -----------------------------------------------------
+  // =========================
   // FETCH HISTORY
-  // -----------------------------------------------------
+  // =========================
   const fetchHistory = async () => {
     if (!userId) return;
 
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from("transactions")
       .select(
         `
@@ -123,7 +149,7 @@ export default function Home() {
       .eq("user_id", userId)
       .order("created_at", { ascending: false });
 
-    if (!error && data) setTransactions(data);
+    if (data) setTransactions(data);
   };
 
   useEffect(() => {
@@ -132,9 +158,9 @@ export default function Home() {
     fetchHistory();
   }, [userId]);
 
-  // -----------------------------------------------------
+  // =========================
   // LOGOUT
-  // -----------------------------------------------------
+  // =========================
   const handleLogout = async () => {
     try {
       await supabase.auth.signOut();
@@ -150,7 +176,7 @@ export default function Home() {
 
   return (
     <View style={styles.container}>
-      {/* ---------------- HEADER ---------------- */}
+      {/* HEADER */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           {user?.avatar_url ? (
@@ -174,9 +200,8 @@ export default function Home() {
         </TouchableOpacity>
       </View>
 
-      {/* ---------------- BODY ---------------- */}
+      {/* BODY */}
       <View style={styles.body}>
-        {/* BALANCE */}
         <View style={styles.balanceCard}>
           <Text style={styles.balanceValue}>
             Rp {balance?.toLocaleString("id-ID") ?? "0"}
@@ -188,7 +213,7 @@ export default function Home() {
           style={styles.backgroundImage}
         />
 
-        {/* Tombol pemasukan */}
+        {/* INCOME */}
         <TouchableOpacity style={styles.buttontambah} onPress={handleIncome}>
           <Image
             source={require("../../assets/images/arrowdown.png")}
@@ -197,7 +222,7 @@ export default function Home() {
           <Text style={styles.texttambah}>Tambah Pemasukan</Text>
         </TouchableOpacity>
 
-        {/* Tombol pengeluaran */}
+        {/* EXPENSE */}
         <TouchableOpacity style={styles.buttonkurang} onPress={handleExpense}>
           <Image
             source={require("../../assets/images/arrowup.png")}
@@ -206,18 +231,27 @@ export default function Home() {
           <Text style={styles.texttambah}>Tambah Pengeluaran</Text>
         </TouchableOpacity>
 
-        {/* Analisis */}
+        {/* ANALISIS */}
         <View style={styles.analisisContainer}>
           <Text style={styles.analisisText}>Analisis Bulan Ini</Text>
 
-          <TouchableOpacity style={styles.detailButton}>
+          <TouchableOpacity
+            style={styles.detailButton}
+            onPress={() => router.push("/analysis")}
+          >
             <Text style={styles.detailText}>Lihat Detail</Text>
           </TouchableOpacity>
         </View>
 
-        {/* ---------------- HISTORY ---------------- */}
+        {/* HISTORY */}
         <View style={styles.historyWrapper}>
-          <Text style={styles.historyTitle}>Riwayat Keuangan</Text>
+          <View style={styles.historyHeader}>
+            <Text style={styles.historyTitle}>Riwayat Keuangan</Text>
+
+            <TouchableOpacity onPress={() => router.push("/history")}>
+              <Text style={styles.historyDetail}>Lihat Detail</Text>
+            </TouchableOpacity>
+          </View>
 
           {transactions.length === 0 && (
             <Text style={{ color: "#777" }}>Belum ada transaksi.</Text>
@@ -226,9 +260,15 @@ export default function Home() {
           <View style={{ maxHeight: 310 }}>
             {transactions.map((item) => {
               const catName = item.categories?.name;
-              const icon = categoryIconStyleMap[catName] ?? (
-                <Wallet color="#74C1FF" size={22} />
-              );
+
+              const icon =
+                item.type === "income"
+                  ? incomeIconMap[catName] ?? (
+                      <Wallet color="#74C1FF" size={22} />
+                    )
+                  : expenseIconMap[catName] ?? (
+                      <Package color="#74C1FF" size={20} />
+                    );
 
               return (
                 <View key={item.id} style={styles.historyCard}>
@@ -259,7 +299,7 @@ export default function Home() {
         </View>
       </View>
 
-      {/* ---------------- MENU POPUP ---------------- */}
+      {/* MENU */}
       <Modal
         transparent
         visible={menuVisible}
@@ -429,16 +469,28 @@ const styles = StyleSheet.create({
 
   menuLogout: { color: "#F55353", marginLeft: 10, fontSize: 14 },
 
-  // HISTORY
   historyWrapper: {
     width: "90%",
     marginTop: 30,
   },
 
+  historyHeader: {
+    width: "100%",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+
+  historyDetail: {
+    color: "#44DA76",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+
   historyTitle: {
     color: "white",
     fontSize: 18,
-    marginBottom: 12,
   },
 
   historyCard: {
