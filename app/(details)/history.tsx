@@ -162,13 +162,6 @@ export default function HistoryPage() {
             {item.type === "income" ? "Pemasukan" : "Pengeluaran"}
           </Text>
 
-          <Text style={styles.date}>
-            {new Date(item.created_at).toLocaleDateString("id-ID", {
-              day: "2-digit",
-              month: "long",
-              year: "numeric",
-            })}
-          </Text>
         </View>
 
         <Text
@@ -394,11 +387,6 @@ const styles = StyleSheet.create({
   cardSubtitle: {
     color: "#888",
     fontSize: 13,
-  },
-  date: {
-    color: "#aaa",
-    fontSize: 12,
-    marginTop: 4,
   },
   amount: {
     fontSize: 17,
