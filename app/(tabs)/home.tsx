@@ -307,7 +307,7 @@ export default function Home() {
                     style={[styles.legendDot, { backgroundColor: "#44DA76" }]}
                   />
                   <Text style={styles.legendText}>
-                    Income: Rp {totalIncome.toLocaleString("id-ID")}
+                    Pemasukan: Rp {totalIncome.toLocaleString("id-ID")}
                   </Text>
                 </View>
               )}
@@ -317,7 +317,7 @@ export default function Home() {
                     style={[styles.legendDot, { backgroundColor: "#FF5E5E" }]}
                   />
                   <Text style={styles.legendText}>
-                    Expense: Rp {totalExpense.toLocaleString("id-ID")}
+                    Pengeluaran: Rp {totalExpense.toLocaleString("id-ID")}
                   </Text>
                 </View>
               )}
@@ -509,7 +509,7 @@ const styles = StyleSheet.create({
   detailText: { color: "#44DA76", fontSize: 14, fontWeight: "600", left: 14 },
   analysisCard: {
     width: "90%",
-    backgroundColor: "#1E1F1F",
+    backgroundColor: "#252525",
     borderRadius: 16,
     padding: 18,
     marginTop: 10,

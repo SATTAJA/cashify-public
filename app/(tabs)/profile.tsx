@@ -3,190 +3,91 @@ import {
   View,
   Text,
   StyleSheet,
-  TextInput,
   TouchableOpacity,
   Image,
-  Alert,
   ActivityIndicator,
 } from "react-native";
-import * as ImagePicker from "expo-image-picker";
 import { supabase } from "../../lib/supabase";
+import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 
 export default function Profile() {
-  const [profile, setProfile] = useState<any>(null);
+  const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [uploading, setUploading] = useState(false);
-  const [username, setUsername] = useState("");
-
-  // ✅ Ambil data profil dari Supabase
-  const getProfile = async () => {
-    try {
-      setLoading(true);
-      const {
-        data: { user },
-        error: userError,
-      } = await supabase.auth.getUser();
-
-      if (userError || !user) throw userError || new Error("Tidak ada user");
-
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("username, email, avatar_url")
-        .eq("id", user.id)
-        .single();
-
-      if (error) throw error;
-
-      setProfile(data);
-      setUsername(data.username ?? "");
-    } catch (error) {
-      console.log("getProfile error:", error);
-      Alert.alert("Gagal Memuat Profil", "Periksa koneksi atau login ulang.");
-    } finally {
-      setLoading(false);
-    }
-  };
 
   useEffect(() => {
-    getProfile();
+    const fetchUser = async () => {
+      const { data } = await supabase.auth.getUser();
+      setUser(data.user);
+      setLoading(false);
+    };
+
+    fetchUser();
   }, []);
 
-  // ✅ Upload foto profil ke Supabase Storage
-const handleUploadAvatar = async () => {
-  try {
-    setUploading(true);
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.7,
-    });
-
-    if (result.canceled) return;
-
-    const file = result.assets[0];
-    const ext = file.uri.split(".").pop();
-    const fileName = `${Date.now()}.${ext}`;
-    const filePath = `${fileName}`;
-
-    // ✅ Ambil blob dari file URI
-    const response = await fetch(file.uri);
-    const blob = await response.blob();
-
-    // ✅ Upload ke Supabase Storage
-    const { error: uploadError } = await supabase.storage
-      .from("avatars")
-      .upload(filePath, blob, {
-        contentType: "image/jpeg",
-        upsert: true,
-      });
-
-    if (uploadError) throw uploadError;
-
-    // ✅ Ambil public URL
-    const { data: publicUrl } = supabase.storage
-      .from("avatars")
-      .getPublicUrl(filePath);
-
-    // ✅ Update URL di tabel profiles
-    const { error: updateError } = await supabase
-      .from("profiles")
-      .update({ avatar_url: publicUrl.publicUrl })
-      .eq("email", profile.email);
-
-    if (updateError) throw updateError;
-
-    setProfile((p: any) => ({ ...p, avatar_url: publicUrl.publicUrl }));
-    Alert.alert("Berhasil", "Foto profil berhasil diperbarui!");
-  } catch (error) {
-    console.error("Upload avatar error:", error);
-    Alert.alert("Gagal Upload", "Terjadi kesalahan saat upload foto.");
-  } finally {
-    setUploading(false);
-  }
-};
-
-
-  // ✅ Simpan perubahan username
-  const handleSave = async () => {
-    try {
-      const { error } = await supabase
-        .from("profiles")
-        .update({ username })
-        .eq("email", profile.email);
-
-      if (error) throw error;
-      Alert.alert("Berhasil", "Profil berhasil diperbarui!");
-    } catch (error) {
-      console.error("Save error:", error);
-      Alert.alert("Gagal", "Tidak dapat menyimpan perubahan.");
-    }
-  };
-
-  // ✅ Logout
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    router.replace("/auth");
-  };
-
-  if (loading)
+  if (loading) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator color="#fff" size="large" />
+        <ActivityIndicator size="large" color="#44DA76" />
       </View>
     );
+  }
+
+  const name = user?.user_metadata?.username || "User";
+  const email = user?.email;
+  const avatar = user?.user_metadata?.avatar_url || null;
 
   return (
     <View style={styles.container}>
-      <TouchableOpacity onPress={handleUploadAvatar}>
-        {profile?.avatar_url ? (
-          <Image source={{ uri: profile.avatar_url }} style={styles.avatar} />
+      {/* Header */}
+      <View style={styles.header}>
+        <Ionicons
+          name="chevron-back"
+          size={26}
+          color="#44DA76"
+          onPress={() => router.back()}
+        />
+        <Text style={styles.headerTitle}>Profil</Text>
+        <View style={{ width: 26 }} /> 
+      </View>
+
+      {/* Upper Curve Section */}
+      <View style={styles.topSection} />
+
+      {/* Avatar */}
+      <View style={styles.avatarWrapper}>
+        {avatar ? (
+          <Image source={{ uri: avatar }} style={styles.avatar} />
         ) : (
           <View style={styles.avatarPlaceholder}>
-            <Text style={{ color: "#888" }}>+ Upload</Text>
+            <Ionicons name="person-outline" size={45} color="#bbb" />
           </View>
         )}
-      </TouchableOpacity>
+      </View>
 
-      <Text style={styles.label}>Email</Text>
-      <TextInput
-        value={profile?.email}
-        editable={false}
-        style={[styles.input, { opacity: 0.6 }]}
-      />
+      {/* Name & Email */}
+      <Text style={styles.name}>{name}</Text>
+      <Text style={styles.email}>{email}</Text>
 
-      <Text style={styles.label}>Username</Text>
-      <TextInput
-        value={username}
-        onChangeText={setUsername}
-        placeholder="Masukkan username"
-        style={styles.input}
-      />
-
+      {/* Change Password */}
       <TouchableOpacity
-        style={[styles.button, { backgroundColor: "#1E90FF" }]}
-        onPress={handleSave}
+        style={styles.changePassBtn}
+        onPress={() => router.push("/(auth)/forgot")}
       >
-        <Text style={styles.buttonText}>Simpan</Text>
+        <Text style={styles.changePassText}>Ganti kata sandi</Text>
+        <Ionicons name="chevron-forward" size={20} color="#44DA76" />
       </TouchableOpacity>
 
+      {/* Logout */}
       <TouchableOpacity
-        style={[styles.button, { backgroundColor: "#444" }]}
-        onPress={() => router.push("/forgot")}
+        style={styles.logoutBtn}
+        onPress={async () => {
+          await supabase.auth.signOut();
+          router.replace("/auth");
+        }}
       >
-        <Text style={styles.buttonText}>Ganti Password</Text>
+        <Text style={styles.logoutText}>Keluar</Text>
       </TouchableOpacity>
-
-      <TouchableOpacity
-        style={[styles.button, { backgroundColor: "#F55353" }]}
-        onPress={handleLogout}
-      >
-        <Text style={styles.buttonText}>Logout</Text>
-      </TouchableOpacity>
-
-      {uploading && <ActivityIndicator color="#fff" style={{ marginTop: 10 }} />}
     </View>
   );
 }
@@ -195,54 +96,99 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#151716",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 20,
-  },
-  avatar: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    marginBottom: 20,
-  },
-  avatarPlaceholder: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: "#222",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 20,
-  },
-  label: {
-    color: "#aaa",
-    alignSelf: "flex-start",
-    marginLeft: 5,
-    marginBottom: 5,
-  },
-  input: {
-    width: "100%",
-    backgroundColor: "#222",
-    color: "white",
-    borderRadius: 8,
-    padding: 10,
-    marginBottom: 15,
-  },
-  button: {
-    width: "100%",
-    padding: 12,
-    borderRadius: 8,
-    alignItems: "center",
-    marginBottom: 10,
-  },
-  buttonText: {
-    color: "white",
-    fontSize: 16,
   },
   center: {
     flex: 1,
-    alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#151716",
+    alignItems: "center",
+  },
+
+  // HEADER
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingTop: 45,
+    paddingBottom: 15,
+    justifyContent: "space-between",
+  },
+  headerTitle: {
+    color: "white",
+    fontSize: 18,
+    fontWeight: "700",
+  },
+
+  // TOP ROUND SECTION
+  topSection: {
+    height: 110,
+    backgroundColor: "#0F0F0F",
+    borderBottomLeftRadius: 40,
+    borderBottomRightRadius: 40,
+  },
+
+  // AVATAR
+  avatarWrapper: {
+    marginTop: -55,
+    alignSelf: "center",
+  },
+  avatar: {
+    width: 110,
+    height: 110,
+    borderRadius: 70,
+  },
+  avatarPlaceholder: {
+    width: 110,
+    height: 110,
+    borderRadius: 70,
+    backgroundColor: "#2A2A2A",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+
+  // NAME & EMAIL
+  name: {
+    marginTop: 15,
+    color: "white",
+    textAlign: "center",
+    fontSize: 20,
+    fontWeight: "700",
+  },
+  email: {
+    marginTop: 5,
+    color: "#ccc",
+    textAlign: "center",
+    fontSize: 14,
+  },
+
+  // CHANGE PASSWORD ROW
+  changePassBtn: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    backgroundColor: "#222",
+    padding: 15,
+    marginHorizontal: 25,
+    borderRadius: 10,
+    marginTop: 35,
+    alignItems: "center",
+  },
+  changePassText: {
+    color: "white",
+    fontSize: 15,
+    fontWeight: "500",
+  },
+
+  // LOGOUT
+  logoutBtn: {
+    marginTop: 40,
+    marginHorizontal: 25,
+    backgroundColor: "#F55353",
+    paddingVertical: 15,
+    borderRadius: 12,
+  },
+  logoutText: {
+    textAlign: "center",
+    color: "white",
+    fontWeight: "700",
+    fontSize: 16,
   },
 });
