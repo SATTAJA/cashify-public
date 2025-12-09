@@ -410,11 +410,13 @@ const styles = StyleSheet.create({
   dropdown: {
     position: "absolute",
     right: 20,
-    top: 110,
+    top: 50,
     backgroundColor: "#222",
     paddingVertical: 6,
     borderRadius: 10,
     width: 160,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.18)",
   },
   dropdownItem: {
     paddingVertical: 12,
