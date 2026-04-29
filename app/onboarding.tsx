@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -6,15 +6,48 @@ import {
   Dimensions,
   TouchableOpacity,
   Animated,
-} from 'react-native';
-import { Image } from 'expo-image';
-import { router, useRouter } from 'expo-router';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { supabase } from '@/lib/supabase';
+} from "react-native";
+import { Image } from "expo-image";
+import { router } from "expo-router";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { supabase } from "@/lib/supabase";
 
-const { width } = Dimensions.get('window');
+const { width } = Dimensions.get("window");
 
-// === CEK SESSION SAAT APP DIBUKA ===
+const slides = [
+  {
+    id: "1",
+    title: "Kelola Uangmu Dengan Mudah",
+    subtitle:
+      "Catat pengeluaran & pemasukan harian langsung dari genggaman.",
+    image: require("../assets/images/dompet1.png"),
+  },
+  {
+    id: "2",
+    title: "Lihat Ke Mana Uangmu Pergi",
+    subtitle:
+      "Visualisasi saldo dan histori pengeluaran agar kamu tetap bijak.",
+    image: require("../assets/images/uang.png"),
+  },
+  {
+    id: "3",
+    title: "",
+    subtitle: "",
+    image: null,
+  },
+];
+
+const Onboarding: React.FC = () => {
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [theme, setTheme] = useState<"dark" | "light">("dark");
+
+  const scrollX = useRef(new Animated.Value(0)).current;
+  const flatListRef = useRef<Animated.FlatList<any>>(null);
+
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const scaleAnim = useRef(new Animated.Value(0.8)).current;
+
+  // ✅ CHECK SESSION (FIXED)
   useEffect(() => {
     const checkSession = async () => {
       try {
@@ -26,47 +59,17 @@ const { width } = Dimensions.get('window');
             refresh_token,
           });
           if (!error && data.session) {
-            router.replace("/home"); // langsung masuk ke home
+            router.replace("/home");
           }
         }
       } catch (err) {
-        console.log("Gagal membaca session:", err);
+        console.log("Session error:", err);
       }
     };
     checkSession();
   }, []);
 
-// 🧩 Data Onboarding
-const slides = [
-  {
-    id: '1',
-    title: 'Kelola Uangmu Dengan Mudah',
-    subtitle: 'Catat pengeluaran & pemasukan harian langsung dari genggaman.',
-    image: require('../assets/images/dompet1.png'),
-  },
-  {
-    id: '2',
-    title: 'Lihat Ke Mana Uangmu Pergi',
-    subtitle: 'Visualisasi saldo dan histori pengeluaran agar kamu tetap bijak.',
-    image: require('../assets/images/uang.png'),
-  },
-  {
-    id: '3',
-    title: 'Mulai Mencatat Keuanganmu Hari Ini',
-    subtitle: 'Bangun kebiasaan finansial yang sehat, cukup dari saku kamu.',
-    image: require('../assets/images/uang.png'), // gunakan PNG, bukan SVG
-  },
-];
-
-const Onboarding: React.FC = () => {
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const scrollX = useRef(new Animated.Value(0)).current;
-  const flatListRef = useRef<Animated.FlatList<any>>(null);
-
-  // 🎬 Animasi pop-up pertama kali muncul
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const scaleAnim = useRef(new Animated.Value(0.8)).current;
-
+  // 🎬 animation
   useEffect(() => {
     Animated.sequence([
       Animated.delay(300),
@@ -86,11 +89,14 @@ const Onboarding: React.FC = () => {
     ]).start();
   }, []);
 
-  const handleNext = () => {
+  const handleNext = async () => {
     if (currentIndex < slides.length - 1) {
-      flatListRef.current?.scrollToIndex({ index: currentIndex + 1 });
+      flatListRef.current?.scrollToIndex({
+        index: currentIndex + 1,
+      });
     } else {
-      router.push('/auth'); 
+      await AsyncStorage.setItem("theme", theme);
+      router.push("/auth");
     }
   };
 
@@ -107,129 +113,110 @@ const Onboarding: React.FC = () => {
 
   return (
     <View style={styles.container}>
-      {/* FlatList dengan animasi smooth */}
       <Animated.FlatList
         ref={flatListRef}
         data={slides}
         keyExtractor={(item) => item.id}
         horizontal
-        showsHorizontalScrollIndicator={false}
         pagingEnabled
+        showsHorizontalScrollIndicator={false}
         onScroll={handleScroll}
         onViewableItemsChanged={handleViewableItemsChanged}
         viewabilityConfig={{ viewAreaCoveragePercentThreshold: 50 }}
         renderItem={({ item, index }) => {
-          const inputRange = [
-            (index - 1) * width,
-            index * width,
-            (index + 1) * width,
-          ];
+          // 🎯 SLIDE 3 (THEME PICKER)
+          if (index === 2) {
+            return (
+              <View style={{ width, alignItems: "center", marginTop: 200 }}>
+                <Text style={styles.title}>Pilih Tampilan Kamu</Text>
+                <Text style={styles.subtitle}>
+                  Sesuaikan dengan gaya kamu 😎
+                </Text>
 
-          // Efek scale + opacity saat scroll
-          const scale = scrollX.interpolate({
-            inputRange,
-            outputRange: [0.9, 1, 0.9],
-            extrapolate: 'clamp',
-          });
+                <View style={styles.themeContainer}>
+                  {/* DARK */}
+                  <TouchableOpacity
+                    onPress={() => setTheme("dark")}
+                    style={[
+                      styles.themeCard,
+                      theme === "dark" && styles.themeActive,
+                    ]}
+                  >
+                    <Text style={styles.themeIcon}>🌙</Text>
+                    <Text style={styles.themeText}>Gelap</Text>
+                  </TouchableOpacity>
 
-          const opacity = scrollX.interpolate({
-            inputRange,
-            outputRange: [0.6, 1, 0.6],
-            extrapolate: 'clamp',
-          });
+                  {/* LIGHT */}
+                  <TouchableOpacity
+                    onPress={() => setTheme("light")}
+                    style={[
+                      styles.themeCard,
+                      styles.lightCard,
+                      theme === "light" && styles.themeActiveLight,
+                    ]}
+                  >
+                    <Text style={styles.themeIcon}>☀️</Text>
+                    <Text style={styles.themeTextLight}>Cerah</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            );
+          }
 
           return (
-            <View style={{ width, alignItems: 'center' }}>
-              <Animated.View
-                style={[
-                  styles.imageWrapper,
-                  { transform: [{ scale }], opacity },
-                ]}
-              >
+            <View style={{ width, alignItems: "center" }}>
+              <View style={styles.imageWrapper}>
                 <Image source={item.image} style={styles.image} />
-              </Animated.View>
+              </View>
 
-              <Animated.View
-                style={{
-                  opacity: fadeAnim,
-                  transform: [{ scale: scaleAnim }],
-                }}
-              >
-                <View style={styles.textWrapper}>
-                  <Text style={styles.title}>{item.title}</Text>
-                  <Text style={styles.subtitle}>{item.subtitle}</Text>
-                </View>
-              </Animated.View>
+              <View style={styles.textWrapper}>
+                <Text style={styles.title}>{item.title}</Text>
+                <Text style={styles.subtitle}>{item.subtitle}</Text>
+              </View>
             </View>
           );
         }}
       />
 
-      {/* 🔘 Dots dengan animasi */}
-      <Animated.View
-        style={[
-          styles.dotsWrapper,
-          { opacity: fadeAnim, transform: [{ scale: scaleAnim }] },
-        ]}
-      >
-        {slides.map((_, i) => {
-          const inputRange = [(i - 1) * width, i * width, (i + 1) * width];
+      {/* DOTS */}
+      <View style={styles.dotsWrapper}>
+        {slides.map((_, i) => (
+          <View
+            key={i}
+            style={[
+              styles.dot,
+              { backgroundColor: i === currentIndex ? "#44DA76" : "#777" },
+            ]}
+          />
+        ))}
+      </View>
 
-          const dotWidth = scrollX.interpolate({
-            inputRange,
-            outputRange: [8, 24, 8],
-            extrapolate: 'clamp',
-          });
-
-          const backgroundColor = scrollX.interpolate({
-            inputRange,
-            outputRange: ['#777', '#44DA76', '#777'],
-            extrapolate: 'clamp',
-          });
-
-          return (
-            <Animated.View
-              key={i}
-              style={[styles.dot, { width: dotWidth, backgroundColor }]}
-            />
-          );
-        })}
-      </Animated.View>
-
-      {/* 🚀 Tombol Lanjut (pop-up muncul smooth) */}
-      <Animated.View
-        style={{
-          opacity: fadeAnim,
-          transform: [{ scale: scaleAnim }],
-        }}
-      >
-        <TouchableOpacity style={styles.button} onPress={handleNext}>
-          <Text style={styles.buttonText}>
-            {currentIndex === slides.length - 1
-              ? 'Mulai Sekarang!'
-              : 'Lanjut'}
-          </Text>
-        </TouchableOpacity>
-      </Animated.View>
+      {/* BUTTON */}
+      <TouchableOpacity style={styles.button} onPress={handleNext}>
+        <Text style={styles.buttonText}>
+          {currentIndex === slides.length - 1
+            ? "Mulai Sekarang!"
+            : "Lanjut"}
+        </Text>
+      </TouchableOpacity>
     </View>
   );
 };
 
 export default Onboarding;
 
-// 🎨 Styles
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#151716',
-    justifyContent: 'center',
+    backgroundColor: "#151716",
+    justifyContent: "center",
   },
   imageWrapper: {
     marginTop: 200,
     width: 380,
     height: 380,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
   },
   image: {
     width: 400,
@@ -238,42 +225,80 @@ const styles = StyleSheet.create({
   },
   textWrapper: {
     paddingHorizontal: 25,
-    alignItems: 'flex-start',
     marginTop: 40,
   },
   title: {
     fontSize: 28,
-    color: 'white',
-    fontWeight: 'bold',
-    marginBottom: 10,
+    color: "white",
+    fontWeight: "bold",
   },
   subtitle: {
     fontSize: 16,
-    color: 'white',
-    fontFamily: 'Poppins-Regular',
+    color: "white",
+    marginTop: 10,
   },
+
   dotsWrapper: {
-    flexDirection: 'row',
-    justifyContent: 'center',
+    flexDirection: "row",
+    justifyContent: "center",
     marginVertical: 25,
   },
   dot: {
+    width: 8,
     height: 8,
     borderRadius: 4,
     marginHorizontal: 5,
   },
+
   button: {
-    backgroundColor: '#44DA76',
+    backgroundColor: "#44DA76",
     paddingVertical: 16,
     borderRadius: 30,
     marginHorizontal: 30,
     marginBottom: 60,
   },
   buttonText: {
-    color: '#fff',
-    fontFamily: 'Poppins-SemiBold',
+    color: "#fff",
+    textAlign: "center",
     fontSize: 16,
-    fontWeight: 'bold',
-    textAlign: 'center',
+    fontWeight: "bold",
+  },
+
+  // 🎨 THEME UI
+  themeContainer: {
+    flexDirection: "row",
+    marginTop: 40,
+    gap: 20,
+  },
+  themeCard: {
+    width: 130,
+    height: 150,
+    borderRadius: 25,
+    backgroundColor: "#1E1E1E",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 2,
+    borderColor: "#333",
+  },
+  lightCard: {
+    backgroundColor: "#fff",
+  },
+  themeActive: {
+    borderColor: "#44DA76",
+  },
+  themeActiveLight: {
+    borderColor: "#FFD93D",
+  },
+  themeIcon: {
+    fontSize: 40,
+    marginBottom: 10,
+  },
+  themeText: {
+    color: "white",
+    fontWeight: "bold",
+  },
+  themeTextLight: {
+    color: "black",
+    fontWeight: "bold",
   },
 });

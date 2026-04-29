@@ -73,44 +73,69 @@ const AuthPage = () => {
 
   // === HANDLE LOGIN / REGISTER ===
   const handleAuth = async () => {
-    if (!email || !password || (!isLogin && !username)) {
-      showAlert("Error", "Harap isi semua kolom.", "error");
-      return;
-    }
+  if (!email || !password || (!isLogin && !username)) {
+    showAlert("Error", "Harap isi semua kolom.", "error");
+    return;
+  }
 
-    setLoading(true);
+  setLoading(true);
 
+  try {
     if (isLogin) {
       // === LOGIN ===
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
-      setLoading(false);
 
       if (error) {
         showAlert("Login Gagal", error.message, "error");
-      } else {
-        showAlert("Berhasil", "Login berhasil!", "success");
-        if (rememberMe && data.session) {
-          await AsyncStorage.setItem("session", JSON.stringify(data.session));
-        }
-        setTimeout(() => router.replace("/home"), 800);
+        return;
       }
+
+      showAlert("Berhasil", "Login berhasil!", "success");
+
+      if (rememberMe && data.session) {
+        await AsyncStorage.setItem("session", JSON.stringify(data.session));
+      }
+
+      setTimeout(() => router.replace("/home"), 800);
     } else {
       // === REGISTER ===
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
-          data: { username },
+          data: {
+            username: username || "user_" + Math.random().toString(36).substring(2, 8),
+          },
         },
       });
-      setLoading(false);
 
       if (error) {
+        console.log("REGISTER ERROR:", error);
         showAlert("Gagal Daftar", error.message, "error");
         return;
+      }
+
+      // 🔥 FIX PENTING: insert profile manual (ANTI ERROR TRIGGER)
+      if (data.user) {
+        const { error: profileError } = await supabase
+          .from("profiles")
+          .insert({
+            id: data.user.id,
+            username: username,
+            email: email,
+          });
+
+        if (profileError) {
+          console.log("PROFILE ERROR:", profileError);
+          showAlert(
+            "Warning",
+            "Akun dibuat, tapi profile gagal disimpan",
+            "info"
+          );
+        }
       }
 
       if (!data.session) {
@@ -123,13 +148,20 @@ const AuthPage = () => {
         if (rememberMe && data.session) {
           await AsyncStorage.setItem("session", JSON.stringify(data.session));
         }
+
         showAlert("Berhasil", "Akun berhasil dibuat!", "success");
         setTimeout(() => router.replace("/home"), 800);
       }
 
       setIsLogin(true);
     }
-  };
+  } catch (err) {
+    console.log("ERROR:", err);
+    showAlert("Error", "Terjadi kesalahan sistem", "error");
+  } finally {
+    setLoading(false);
+  }
+};
 
   // === TAMPILKAN ICON ALERT SESUAI TYPE ===
   const renderAlertIcon = () => {

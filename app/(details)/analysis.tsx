@@ -1,5 +1,5 @@
 // ============================
-// ANALYSIS DETAIL PAGE (FINAL)
+// ANALYSIS DETAIL PAGE - WEEKLY BAR CHART ADVANCED
 // ============================
 
 import React, { useEffect, useState } from "react";
@@ -11,30 +11,226 @@ import {
   ScrollView,
   Modal,
   Platform,
+  Dimensions,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { Svg, Circle } from "react-native-svg";
 import { useRouter } from "expo-router";
 import { supabase } from "../../lib/supabase";
 
 const HEADER_TOP_PADDING = Platform.OS === "android" ? 25 : 55;
+const { width: screenWidth } = Dimensions.get("window");
+
+// Helper: format tanggal ke "MMM DD" (contoh: Jun 23)
+function formatDateShort(date: Date): string {
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${months[date.getMonth()]} ${date.getDate()}`;
+}
+
+// Helper: format "Jun 23 - Jun 29"
+function formatWeekRange(start: Date, end: Date): string {
+  return `${formatDateShort(start)} - ${formatDateShort(end)}`;
+}
+
+// Helper: mendapatkan range minggu (Minggu - Sabtu) dari tanggal tertentu
+function getWeekRangeFromDate(date: Date): { start: Date; end: Date; days: Date[] } {
+  const current = new Date(date);
+  const dayOfWeek = current.getDay(); // 0 = Minggu
+  const start = new Date(current);
+  start.setDate(current.getDate() - dayOfWeek);
+  start.setHours(0, 0, 0, 0);
+  
+  const end = new Date(start);
+  end.setDate(start.getDate() + 6);
+  end.setHours(23, 59, 59, 999);
+  
+  const days: Date[] = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    days.push(d);
+  }
+  return { start, end, days };
+}
+
+// Helper: format YYYY-MM-DD untuk perbandingan tanggal
+function toYMD(date: Date): string {
+  return date.toISOString().split('T')[0];
+}
+
+// Komponen Bar Chart Mingguan (untuk Analysis Page)
+const WeeklyBarChart = ({ 
+  transactions, 
+  weekStartDate, 
+  onWeekChange,
+  totalIncome,
+  totalExpense
+}: { 
+  transactions: any[]; 
+  weekStartDate: Date;
+  onWeekChange: (newDate: Date) => void;
+  totalIncome: number;
+  totalExpense: number;
+}) => {
+  const [weekData, setWeekData] = useState<{
+    weekRange: { start: Date; end: Date; days: Date[] };
+    dailyTotals: { date: Date; income: number; expense: number }[];
+    maxValue: number;
+  } | null>(null);
+  
+  useEffect(() => {
+    const { start, end, days } = getWeekRangeFromDate(weekStartDate);
+    
+    // Filter transaksi dalam minggu ini
+    const weekTransactions = transactions.filter(t => {
+      const tDate = new Date(t.created_at);
+      return tDate >= start && tDate <= end;
+    });
+    
+    const dailyTotals = days.map(day => {
+      const ymd = toYMD(day);
+      let income = 0, expense = 0;
+      weekTransactions.forEach(t => {
+        const tYMD = toYMD(new Date(t.created_at));
+        if (tYMD === ymd) {
+          if (t.type === 'income') income += t.amount;
+          else expense += t.amount;
+        }
+      });
+      return { date: day, income, expense };
+    });
+    
+    const maxValue = Math.max(...dailyTotals.flatMap(d => [d.income, d.expense]), 1);
+    
+    setWeekData({ weekRange: { start, end, days }, dailyTotals, maxValue });
+  }, [transactions, weekStartDate]);
+  
+  if (!weekData) return null;
+  
+  const { dailyTotals, maxValue } = weekData;
+  const maxBarHeight = 180;
+  const barWidth = 28;
+  const groupWidth = 68;
+  const scrollWidth = Math.max(screenWidth - 48, dailyTotals.length * groupWidth);
+  
+  const dayLabels = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"];
+  
+  // Cek apakah minggu ini adalah minggu berjalan
+  const today = new Date();
+  const currentWeekStart = getWeekRangeFromDate(today).start;
+  const isCurrentWeek = weekData.weekRange.start.toDateString() === currentWeekStart.toDateString();
+  
+  return (
+    <View style={styles.weeklyCard}>
+      {/* Navigasi Minggu */}
+      <View style={styles.weekNavContainer}>
+        <TouchableOpacity 
+          onPress={() => {
+            const newDate = new Date(weekStartDate);
+            newDate.setDate(weekStartDate.getDate() - 7);
+            onWeekChange(newDate);
+          }}
+          style={styles.navButton}
+        >
+          <Ionicons name="chevron-back" size={24} color="#44DA76" />
+        </TouchableOpacity>
+        
+        <View style={styles.weekInfo}>
+          <Text style={styles.weekRangeText}>
+            {formatWeekRange(weekData.weekRange.start, weekData.weekRange.end)}
+          </Text>
+          {isCurrentWeek && (
+            <View style={styles.currentWeekBadge}>
+              <Text style={styles.currentWeekText}>Minggu Ini</Text>
+            </View>
+          )}
+        </View>
+        
+        <TouchableOpacity 
+          onPress={() => {
+            const newDate = new Date(weekStartDate);
+            newDate.setDate(weekStartDate.getDate() + 7);
+            onWeekChange(newDate);
+          }}
+          style={styles.navButton}
+        >
+          <Ionicons name="chevron-forward" size={24} color="#44DA76" />
+        </TouchableOpacity>
+      </View>
+      
+      {/* Total Ringkasan */}
+      <View style={styles.totalRow}>
+        <View style={styles.totalCard}>
+          <Ionicons name="trending-up-outline" size={24} color="#4CD964" />
+          <Text style={styles.totalLabel}>Total Pemasukan</Text>
+          <Text style={styles.totalValueGreen}>Rp {totalIncome.toLocaleString("id-ID")}</Text>
+        </View>
+        <View style={styles.totalCard}>
+          <Ionicons name="trending-down-outline" size={24} color="#FF5E5E" />
+          <Text style={styles.totalLabel}>Total Pengeluaran</Text>
+          <Text style={styles.totalValueRed}>Rp {totalExpense.toLocaleString("id-ID")}</Text>
+        </View>
+      </View>
+      
+      {/* Bar Chart */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chartScroll}>
+        <View style={{ width: scrollWidth, flexDirection: "row", justifyContent: "space-around", alignItems: "flex-end", paddingVertical: 12 }}>
+          {dailyTotals.map((item, idx) => {
+            const incomeHeight = maxValue === 0 ? 0 : (item.income / maxValue) * maxBarHeight;
+            const expenseHeight = maxValue === 0 ? 0 : (item.expense / maxValue) * maxBarHeight;
+            return (
+              <View key={idx} style={styles.barGroup}>
+                <View style={styles.barsContainer}>
+                  {/* Bar Income */}
+                  <View style={[styles.bar, { height: Math.max(incomeHeight, 4), backgroundColor: "#44DA76", marginBottom: 4 }]} />
+                  {/* Bar Expense */}
+                  <View style={[styles.bar, { height: Math.max(expenseHeight, 4), backgroundColor: "#FF5E5E" }]} />
+                </View>
+                <Text style={styles.dayLabel}>{dayLabels[idx]}</Text>
+                {/* Nilai di bawah bar (opsional) */}
+                <View style={styles.dayValues}>
+                  {item.income > 0 && <Text style={styles.incomeSmall}>Rp{item.income}</Text>}
+                  {item.expense > 0 && <Text style={styles.expenseSmall}>Rp{item.expense}</Text>}
+                </View>
+              </View>
+            );
+          })}
+        </View>
+      </ScrollView>
+      
+      {/* Legend */}
+      <View style={styles.legendContainer}>
+        <View style={styles.legendRow}>
+          <View style={[styles.legendColor, { backgroundColor: "#44DA76" }]} />
+          <Text style={styles.legendText}>Pemasukan</Text>
+        </View>
+        <View style={styles.legendRow}>
+          <View style={[styles.legendColor, { backgroundColor: "#FF5E5E" }]} />
+          <Text style={styles.legendText}>Pengeluaran</Text>
+        </View>
+      </View>
+    </View>
+  );
+};
 
 export default function AnalysisDetail() {
   const router = useRouter();
 
   const [userId, setUserId] = useState<string | null>(null);
   const [transactions, setTransactions] = useState<any[]>([]);
+  const [allTransactions, setAllTransactions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-
+  const [weekStartDate, setWeekStartDate] = useState(new Date());
+  
+  const [openMonthPicker, setOpenMonthPicker] = useState(false);
+  
   const bulanList = [
     "Januari","Februari","Maret","April","Mei","Juni",
     "Juli","Agustus","September","Oktober","November","Desember",
   ];
 
   const today = new Date();
-  const [bulan, setBulan] = useState(today.getMonth());
-  const [tahun, setTahun] = useState(today.getFullYear());
-  const [openMonthPicker, setOpenMonthPicker] = useState(false);
+  const [selectedMonth, setSelectedMonth] = useState(today.getMonth());
+  const [selectedYear, setSelectedYear] = useState(today.getFullYear());
 
   // FETCH USER
   useEffect(() => {
@@ -45,60 +241,79 @@ export default function AnalysisDetail() {
     f();
   }, []);
 
-  // FETCH DATA
+  // FETCH ALL TRANSACTIONS (unfiltered by month)
   useEffect(() => {
     if (!userId) return;
 
-    const fetchTrans = async () => {
-      setLoading(true);
-
-      const start = new Date(tahun, bulan, 1).toISOString();
-      const end = new Date(tahun, bulan + 1, 1).toISOString();
-
+    const fetchAllTrans = async () => {
       const { data } = await supabase
         .from("transactions")
         .select("id,type,amount,categories(name),created_at")
         .eq("user_id", userId)
-        .gte("created_at", start)
-        .lt("created_at", end)
         .order("created_at", { ascending: false });
-
-      setTransactions(data ?? []);
+      
+      setAllTransactions(data ?? []);
       setLoading(false);
     };
 
-    fetchTrans();
-  }, [userId, bulan, tahun]);
+    fetchAllTrans();
+  }, [userId]);
 
-  // DONUT LOGIC
-  const totalIncome = transactions
-    .filter((x) => x.type === "income")
+  // Filter transactions by selected month (untuk tampilan bulan di header)
+  const filteredByMonth = allTransactions.filter(t => {
+    const tDate = new Date(t.created_at);
+    return tDate.getMonth() === selectedMonth && tDate.getFullYear() === selectedYear;
+  });
+
+  // Hitung total untuk bulan yang dipilih
+  const monthlyIncome = filteredByMonth
+    .filter(x => x.type === "income")
     .reduce((s, x) => s + x.amount, 0);
-
-  const totalExpense = transactions
-    .filter((x) => x.type === "expense")
+  const monthlyExpense = filteredByMonth
+    .filter(x => x.type === "expense")
     .reduce((s, x) => s + x.amount, 0);
+  const monthlySavings = monthlyIncome - monthlyExpense;
 
-  const total = totalIncome + totalExpense || 1;
-  const incomePercent = (totalIncome / total) * 100;
-  const expensePercent = (totalExpense / total) * 100;
+  // Transaksi untuk minggu yang dipilih
+  const getWeekTransactions = () => {
+    const { start, end } = getWeekRangeFromDate(weekStartDate);
+    return allTransactions.filter(t => {
+      const tDate = new Date(t.created_at);
+      return tDate >= start && tDate <= end;
+    });
+  };
 
-  const size = 220;
-  const strokeWidth = 28;
-  const radius = (size - strokeWidth) / 2;
-  const circumference = 2 * Math.PI * radius;
+  const weekTransactions = getWeekTransactions();
+  const weekIncome = weekTransactions
+    .filter(x => x.type === "income")
+    .reduce((s, x) => s + x.amount, 0);
+  const weekExpense = weekTransactions
+    .filter(x => x.type === "expense")
+    .reduce((s, x) => s + x.amount, 0);
+  const weekSavings = weekIncome - weekExpense;
 
-  const incomeStroke = (incomePercent / 100) * circumference;
-  const expenseStroke = (expensePercent / 100) * circumference;
-
-  // SUMMARY
-  const biggestIncome = [...transactions]
-    .filter((x) => x.type === "income")
+  // Data terbesar
+  const biggestIncomeMonth = [...filteredByMonth]
+    .filter(x => x.type === "income")
     .sort((a, b) => b.amount - a.amount)[0];
 
-  const biggestExpense = [...transactions]
-    .filter((x) => x.type === "expense")
+  const biggestExpenseMonth = [...filteredByMonth]
+    .filter(x => x.type === "expense")
     .sort((a, b) => b.amount - a.amount)[0];
+
+  // Data untuk minggu yang dipilih
+  const biggestIncomeWeek = [...weekTransactions]
+    .filter(x => x.type === "income")
+    .sort((a, b) => b.amount - a.amount)[0];
+
+  const biggestExpenseWeek = [...weekTransactions]
+    .filter(x => x.type === "expense")
+    .sort((a, b) => b.amount - a.amount)[0];
+
+  // Reset to current week
+  const goToCurrentWeek = () => {
+    setWeekStartDate(new Date());
+  };
 
   return (
     <View style={styles.container}>
@@ -109,7 +324,9 @@ export default function AnalysisDetail() {
           <Ionicons name="chevron-back" size={30} color="#44DA76" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Analisis Keuangan</Text>
-        <View style={{ width: 30 }} />
+        <TouchableOpacity onPress={goToCurrentWeek}>
+          <Text style={styles.todayText}>Hari Ini</Text>
+        </TouchableOpacity>
       </View>
 
       {/* MONTH PICKER BUTTON */}
@@ -117,8 +334,9 @@ export default function AnalysisDetail() {
         onPress={() => setOpenMonthPicker(true)}
         style={styles.monthSelector}
       >
-        <Ionicons name="calendar-outline" color="white" size={22} />
-        <Text style={styles.monthText}>{bulanList[bulan]} {tahun}</Text>
+        <Ionicons name="calendar-outline" color="white" size={20} />
+        <Text style={styles.monthText}>{bulanList[selectedMonth]} {selectedYear}</Text>
+        <Ionicons name="chevron-down" color="white" size={18} />
       </TouchableOpacity>
 
       {/* MONTH-YEAR PICKER MODAL */}
@@ -127,37 +345,35 @@ export default function AnalysisDetail() {
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Pilih Bulan</Text>
 
-            {/* YEAR NAVIGATION */}
             <View style={styles.yearRow}>
-              <TouchableOpacity onPress={() => setTahun(tahun - 1)}>
+              <TouchableOpacity onPress={() => setSelectedYear(selectedYear - 1)}>
                 <Ionicons name="chevron-back" size={24} color="#44DA76" />
               </TouchableOpacity>
-
-              <Text style={styles.yearText}>{tahun}</Text>
-
-              <TouchableOpacity onPress={() => setTahun(tahun + 1)}>
+              <Text style={styles.yearText}>{selectedYear}</Text>
+              <TouchableOpacity onPress={() => setSelectedYear(selectedYear + 1)}>
                 <Ionicons name="chevron-forward" size={24} color="#44DA76" />
               </TouchableOpacity>
             </View>
 
-            {/* MONTH LIST */}
-            {bulanList.map((bl, i) => (
-              <TouchableOpacity
-                key={i}
-                style={styles.monthOption}
-                onPress={() => {
-                  setBulan(i);
-                  setOpenMonthPicker(false);
-                }}
-              >
-                <Text style={[
-                  styles.monthOptionText,
-                  i === bulan && { color: "#44DA76" }
-                ]}>
-                  {bl}
-                </Text>
-              </TouchableOpacity>
-            ))}
+            <ScrollView style={{ maxHeight: 250 }}>
+              {bulanList.map((bl, i) => (
+                <TouchableOpacity
+                  key={i}
+                  style={styles.monthOption}
+                  onPress={() => {
+                    setSelectedMonth(i);
+                    setOpenMonthPicker(false);
+                  }}
+                >
+                  <Text style={[
+                    styles.monthOptionText,
+                    i === selectedMonth && { color: "#44DA76", fontWeight: "bold" }
+                  ]}>
+                    {bl}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
 
             <TouchableOpacity
               onPress={() => setOpenMonthPicker(false)}
@@ -169,106 +385,126 @@ export default function AnalysisDetail() {
         </View>
       </Modal>
 
-      <ScrollView contentContainerStyle={{ alignItems: "center" }}>
-        {/* DONUT */}
-        <View style={styles.chartCard}>
-          <View style={styles.chartContainer}>
-            <Svg width={size} height={size}>
-              <Circle
-                stroke="#222"
-                cx={size / 2}
-                cy={size / 2}
-                r={radius}
-                strokeWidth={strokeWidth}
-                fill="none"
-              />
+      <ScrollView contentContainerStyle={{ paddingBottom: 40, alignItems: "center" }}>
 
-              {totalIncome > 0 && (
-                <Circle
-                  stroke="#44DA76"
-                  cx={size / 2}
-                  cy={size / 2}
-                  r={radius}
-                  strokeWidth={strokeWidth}
-                  strokeDasharray={`${incomeStroke}, ${circumference}`}
-                  strokeLinecap="round"
-                  transform={`rotate(-90 ${size / 2} ${size / 2})`}
-                  fill="none"
-                />
-              )}
+        {/* WEEKLY BAR CHART */}
+        <WeeklyBarChart 
+          transactions={allTransactions}
+          weekStartDate={weekStartDate}
+          onWeekChange={setWeekStartDate}
+          totalIncome={weekIncome}
+          totalExpense={weekExpense}
+        />
 
-              {totalExpense > 0 && (
-                <Circle
-                  stroke="#FF5E5E"
-                  cx={size / 2}
-                  cy={size / 2}
-                  r={radius}
-                  strokeWidth={strokeWidth}
-                  strokeDasharray={`${expenseStroke}, ${circumference}`}
-                  strokeDashoffset={-incomeStroke}
-                  strokeLinecap="round"
-                  transform={`rotate(-90 ${size / 2} ${size / 2})`}
-                  fill="none"
-                />
-              )}
-            </Svg>
-
-            <View style={styles.centerText}>
-              <Text style={styles.percentText}>{incomePercent.toFixed(1)}%</Text>
-              <Text style={styles.subText}>Pemasukan</Text>
+        {/* WEEKLY SUMMARY */}
+        <View style={styles.summarySection}>
+          <Text style={styles.sectionTitle}>Ringkasan Minggu Ini</Text>
+          
+          <View style={styles.summaryRow}>
+            <View style={styles.summarySmallCard}>
+              <Text style={styles.summarySmallLabel}>Penghematan</Text>
+              <Text style={[
+                styles.summarySmallValue,
+                { color: weekSavings >= 0 ? "#44DA76" : "#FF5E5E" }
+              ]}>
+                Rp {weekSavings.toLocaleString("id-ID")}
+              </Text>
+            </View>
+            
+            <View style={styles.summarySmallCard}>
+              <Text style={styles.summarySmallLabel}>Transaksi</Text>
+              <Text style={styles.summarySmallValue}>
+                {weekTransactions.length}
+              </Text>
             </View>
           </View>
 
-          {/* LEGEND */}
-          <View style={styles.legendWrapper}>
-            <View style={styles.legendRow}>
-              <View style={[styles.legendDot, { backgroundColor: "#44DA76" }]} />
-              <Text style={styles.legendText}>
-                Income: Rp {totalIncome.toLocaleString("id-ID")}
-              </Text>
-            </View>
+          <View style={styles.summaryCard}>
+            <Text style={styles.summaryLabel}>💚 Pemasukan Terbesar Minggu Ini</Text>
+            {biggestIncomeWeek ? (
+              <>
+                <Text style={styles.summaryCategory}>{biggestIncomeWeek.categories?.name}</Text>
+                <Text style={[styles.summaryAmount, { color: "#44DA76" }]}>
+                  Rp {biggestIncomeWeek.amount.toLocaleString("id-ID")}
+                </Text>
+              </>
+            ) : (
+              <Text style={styles.noData}>Tidak ada pemasukan</Text>
+            )}
+          </View>
 
-            <View style={styles.legendRow}>
-              <View style={[styles.legendDot, { backgroundColor: "#FF5E5E" }]} />
-              <Text style={styles.legendText}>
-                Expense: Rp {totalExpense.toLocaleString("id-ID")}
-              </Text>
-            </View>
+          <View style={styles.summaryCard}>
+            <Text style={styles.summaryLabel}>❤️ Pengeluaran Terbesar Minggu Ini</Text>
+            {biggestExpenseWeek ? (
+              <>
+                <Text style={styles.summaryCategory}>{biggestExpenseWeek.categories?.name}</Text>
+                <Text style={[styles.summaryAmount, { color: "#FF5E5E" }]}>
+                  Rp {biggestExpenseWeek.amount.toLocaleString("id-ID")}
+                </Text>
+              </>
+            ) : (
+              <Text style={styles.noData}>Tidak ada pengeluaran</Text>
+            )}
           </View>
         </View>
 
-        {/* SUMMARY */}
-        <View style={{ width: "90%", marginTop: 25 }}>
-          <Text style={styles.listTitle}>Ringkasan Bulan Ini</Text>
-
-          {/* INCOME */}
+        {/* MONTHLY SUMMARY (DETAIL) */}
+        <View style={styles.summarySection}>
+          <Text style={styles.sectionTitle}>Ringkasan {bulanList[selectedMonth]} {selectedYear}</Text>
+          
           <View style={styles.summaryCard}>
-            <Text style={styles.summaryLabel}>Pemasukan Terbesar</Text>
-            {biggestIncome ? (
+            <Text style={styles.summaryLabel}>🏆 Pemasukan Terbesar Bulan Ini</Text>
+            {biggestIncomeMonth ? (
               <>
-                <Text style={styles.summaryCategory}>{biggestIncome.categories?.name}</Text>
+                <Text style={styles.summaryCategory}>{biggestIncomeMonth.categories?.name}</Text>
                 <Text style={[styles.summaryAmount, { color: "#44DA76" }]}>
-                  Rp {biggestIncome.amount.toLocaleString("id-ID")}
+                  Rp {biggestIncomeMonth.amount.toLocaleString("id-ID")}
                 </Text>
               </>
             ) : (
-              <Text style={styles.noData}>Tidak ada pemasukan.</Text>
+              <Text style={styles.noData}>Tidak ada pemasukan</Text>
             )}
           </View>
 
-          {/* EXPENSE */}
           <View style={styles.summaryCard}>
-            <Text style={styles.summaryLabel}>Pengeluaran Terbesar</Text>
-            {biggestExpense ? (
+            <Text style={styles.summaryLabel}>⚠️ Pengeluaran Terbesar Bulan Ini</Text>
+            {biggestExpenseMonth ? (
               <>
-                <Text style={styles.summaryCategory}>{biggestExpense.categories?.name}</Text>
+                <Text style={styles.summaryCategory}>{biggestExpenseMonth.categories?.name}</Text>
                 <Text style={[styles.summaryAmount, { color: "#FF5E5E" }]}>
-                  Rp {biggestExpense.amount.toLocaleString("id-ID")}
+                  Rp {biggestExpenseMonth.amount.toLocaleString("id-ID")}
                 </Text>
               </>
             ) : (
-              <Text style={styles.noData}>Tidak ada pengeluaran.</Text>
+              <Text style={styles.noData}>Tidak ada pengeluaran</Text>
             )}
+          </View>
+
+          {/* Daftar Kategori */}
+          <View style={styles.categoriesCard}>
+            <Text style={styles.categoriesTitle}>📊 Kategori Pengeluaran</Text>
+            {(() => {
+              const expenseByCategory: { [key: string]: number } = {};
+              filteredByMonth
+                .filter(t => t.type === "expense")
+                .forEach(t => {
+                  const catName = t.categories?.name || "Lainnya";
+                  expenseByCategory[catName] = (expenseByCategory[catName] || 0) + t.amount;
+                });
+              
+              const sorted = Object.entries(expenseByCategory).sort((a, b) => b[1] - a[1]);
+              
+              if (sorted.length === 0) {
+                return <Text style={styles.noData}>Belum ada pengeluaran</Text>;
+              }
+              
+              return sorted.map(([name, amount]) => (
+                <View key={name} style={styles.categoryRow}>
+                  <Text style={styles.categoryName}>{name}</Text>
+                  <Text style={styles.categoryAmount}>Rp {amount.toLocaleString("id-ID")}</Text>
+                </View>
+              ));
+            })()}
           </View>
         </View>
       </ScrollView>
@@ -292,19 +528,20 @@ const styles = StyleSheet.create({
     marginTop: 25,
   },
   headerTitle: { color: "white", fontSize: 20, fontWeight: "700" },
+  todayText: { color: "#44DA76", fontSize: 14, fontWeight: "600" },
 
   monthSelector: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 8,
     backgroundColor: "#252525",
     paddingVertical: 10,
-    paddingHorizontal: 15,
-    borderRadius: 12,
+    paddingHorizontal: 16,
+    borderRadius: 30,
     alignSelf: "center",
-    marginBottom: 15,
+    marginBottom: 20,
   },
-  monthText: { color: "white", fontSize: 17, fontWeight: "600" },
+  monthText: { color: "white", fontSize: 16, fontWeight: "600" },
 
   modalOverlay: {
     flex: 1,
@@ -316,7 +553,7 @@ const styles = StyleSheet.create({
     width: "80%",
     backgroundColor: "#252525",
     padding: 20,
-    borderRadius: 16,
+    borderRadius: 20,
   },
   modalTitle: { color: "white", fontSize: 18, fontWeight: "700", textAlign: "center", marginBottom: 10 },
 
@@ -329,47 +566,107 @@ const styles = StyleSheet.create({
   },
   yearText: { color: "white", fontSize: 18, fontWeight: "700" },
 
-  monthOption: { paddingVertical: 10 },
+  monthOption: { paddingVertical: 12, alignItems: "center" },
   monthOptionText: { color: "white", fontSize: 16 },
 
   closeBtn: {
     marginTop: 15,
     backgroundColor: "#333",
-    paddingVertical: 10,
-    borderRadius: 10,
+    paddingVertical: 12,
+    borderRadius: 12,
     alignItems: "center",
   },
 
-  chartCard: {
+  // Savings Card
+  savingsCard: {
+    width: "90%",
+    backgroundColor: "#1E2A2A",
+    borderRadius: 20,
+    padding: 20,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "#2A3A3A",
+  },
+  savingsLabel: { color: "#aaa", fontSize: 14, textAlign: "center" },
+  savingsValue: { fontSize: 32, fontWeight: "bold", textAlign: "center", marginVertical: 8 },
+  savingsRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 12 },
+  savingsItem: { flex: 1, alignItems: "center" },
+  savingsItemLabel: { color: "#888", fontSize: 12 },
+  savingsItemValueGreen: { color: "#44DA76", fontSize: 14, fontWeight: "600" },
+  savingsItemValueRed: { color: "#FF5E5E", fontSize: 14, fontWeight: "600" },
+
+  // Weekly Chart
+  weeklyCard: {
     width: "90%",
     backgroundColor: "#1E1F1F",
-    padding: 20,
-    borderRadius: 16,
+    borderRadius: 20,
+    padding: 16,
+    marginBottom: 20,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.08)",
+  },
+  weekNavContainer: {
+    flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
   },
-
-  chartContainer: { justifyContent: "center", alignItems: "center" },
-  centerText: { position: "absolute", alignItems: "center" },
-  percentText: { color: "white", fontSize: 38, fontWeight: "800" },
-  subText: { color: "#888", fontSize: 15 },
-
-  legendWrapper: { width: "90%", marginTop: 20 },
-  legendRow: { flexDirection: "row", alignItems: "center", marginBottom: 6 },
-  legendDot: { width: 16, height: 16, borderRadius: 10, marginRight: 10 },
-  legendText: { color: "white", fontSize: 16 },
-
-  listTitle: { color: "white", fontSize: 18, fontWeight: "700" },
-
-  summaryCard: {
-    backgroundColor: "#252525",
-    padding: 16,
-    borderRadius: 14,
-    marginTop: 15,
+  navButton: {
+    padding: 8,
+    backgroundColor: "#2A2A2A",
+    borderRadius: 30,
   },
-  summaryLabel: { color: "#888", fontSize: 14 },
-  summaryCategory: { color: "white", fontSize: 17, },
-  summaryAmount: { fontSize: 18, fontWeight: "700", marginTop: 5 },
-  noData: { color: "#777", marginTop: 5 },
+  weekInfo: { alignItems: "center" },
+  weekRangeText: { color: "white", fontSize: 15, fontWeight: "600" },
+  currentWeekBadge: {
+    backgroundColor: "#44DA7620",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 12,
+    marginTop: 4,
+  },
+  currentWeekText: { color: "#44DA76", fontSize: 10 },
+  
+  totalRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 16, gap: 12 },
+  totalCard: { flex: 1, backgroundColor: "#2A2A2A", padding: 12, borderRadius: 12, alignItems: "center" },
+  totalLabel: { color: "#aaa", fontSize: 12, marginTop: 4 },
+  totalValueGreen: { color: "#44DA76", fontSize: 16, fontWeight: "bold" },
+  totalValueRed: { color: "#FF5E5E", fontSize: 16, fontWeight: "bold" },
+  
+  chartScroll: { marginVertical: 8 },
+  barGroup: { alignItems: "center", width: 68 },
+  barsContainer: { flexDirection: "row", alignItems: "flex-end", justifyContent: "center", height: 200, marginBottom: 8 },
+  bar: { width: 26, marginHorizontal: 3, borderRadius: 8, minHeight: 4 },
+  dayLabel: { color: "#aaa", fontSize: 11, marginTop: 4 },
+  dayValues: { alignItems: "center", marginTop: 4 },
+  incomeSmall: { color: "#44DA76", fontSize: 9 },
+  expenseSmall: { color: "#FF5E5E", fontSize: 9 },
+  
+  legendContainer: { flexDirection: "row", justifyContent: "center", marginTop: 16, paddingTop: 12, borderTopWidth: 0.5, borderTopColor: "#333" },
+  legendRow: { flexDirection: "row", alignItems: "center", marginHorizontal: 16 },
+  legendColor: { width: 14, height: 14, borderRadius: 7, marginRight: 6 },
+  legendText: { color: "#ccc", fontSize: 13 },
+  legendDotSmall: { width: 10, height: 10, borderRadius: 5, marginRight: 6 },
+
+  // Summary Sections
+  summarySection: { width: "90%", marginTop: 8 },
+  sectionTitle: { color: "white", fontSize: 18, fontWeight: "700", marginBottom: 12 },
+  
+  summaryRow: { flexDirection: "row", justifyContent: "space-between", gap: 12, marginBottom: 12 },
+  summarySmallCard: { flex: 1, backgroundColor: "#252525", padding: 16, borderRadius: 14, alignItems: "center" },
+  summarySmallLabel: { color: "#888", fontSize: 13 },
+  summarySmallValue: { color: "white", fontSize: 18, fontWeight: "bold", marginTop: 6 },
+  
+  summaryCard: { backgroundColor: "#252525", padding: 16, borderRadius: 14, marginBottom: 12 },
+  summaryLabel: { color: "#aaa", fontSize: 14, marginBottom: 6 },
+  summaryCategory: { color: "white", fontSize: 16, fontWeight: "500" },
+  summaryAmount: { fontSize: 20, fontWeight: "700", marginTop: 4 },
+  
+  categoriesCard: { backgroundColor: "#252525", padding: 16, borderRadius: 14, marginBottom: 20 },
+  categoriesTitle: { color: "white", fontSize: 16, fontWeight: "600", marginBottom: 12 },
+  categoryRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 10, borderBottomWidth: 0.5, borderBottomColor: "#333" },
+  categoryName: { color: "#ddd", fontSize: 14 },
+  categoryAmount: { color: "#FF5E5E", fontSize: 14, fontWeight: "500" },
+  
+  noData: { color: "#777", marginTop: 6, textAlign: "center" },
 });

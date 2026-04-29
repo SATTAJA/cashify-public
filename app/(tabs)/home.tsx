@@ -1,5 +1,5 @@
 // =======================
-// HOME PAGE FINAL – DONUT ANALYSIS
+// HOME PAGE FINAL – WEEKLY BAR CHART (REPLACES DONUT)
 // =======================
 
 import React, { useState, useEffect } from "react";
@@ -12,12 +12,13 @@ import {
   Alert,
   Image,
   Platform,
+  ScrollView,
+  Dimensions,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../../lib/supabase";
-import { Svg, Circle } from "react-native-svg";
 
 // ==============================
 // IKON INCOME
@@ -66,6 +67,146 @@ type UserInfo = {
   username: string;
   avatar_url: string | null;
 } | null;
+
+// Helper: format tanggal ke "MMM DD" (contoh: Jun 23)
+function formatDateShort(date: Date): string {
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${months[date.getMonth()]} ${date.getDate()}`;
+}
+
+// Helper: mendapatkan range minggu (Minggu - Sabtu)
+function getWeekRange(date: Date = new Date()): { start: Date; end: Date; days: Date[] } {
+  const current = new Date(date);
+  const dayOfWeek = current.getDay(); // 0 = Minggu
+  const start = new Date(current);
+  start.setDate(current.getDate() - dayOfWeek);
+  start.setHours(0, 0, 0, 0);
+  
+  const end = new Date(start);
+  end.setDate(start.getDate() + 6);
+  end.setHours(23, 59, 59, 999);
+  
+  const days: Date[] = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    days.push(d);
+  }
+  return { start, end, days };
+}
+
+// Helper: format YYYY-MM-DD untuk perbandingan tanggal
+function toYMD(date: Date): string {
+  return date.toISOString().split('T')[0];
+}
+
+// Komponen Bar Chart Mingguan
+const WeeklyBarChart = ({ transactions, userId }: { transactions: any[]; userId: string | null }) => {
+  const [weekData, setWeekData] = useState<{
+    weekRange: { start: Date; end: Date; days: Date[] };
+    dailyTotals: { date: Date; income: number; expense: number }[];
+    totalIncome: number;
+    totalExpense: number;
+    maxValue: number;
+  } | null>(null);
+  
+  useEffect(() => {
+    if (!userId || transactions.length === 0) return;
+    
+    const { start, end, days } = getWeekRange(new Date());
+    // Filter transaksi dalam minggu ini
+    const weekTransactions = transactions.filter(t => {
+      const tDate = new Date(t.created_at);
+      return tDate >= start && tDate <= end;
+    });
+    
+    const dailyTotals = days.map(day => {
+      const ymd = toYMD(day);
+      let income = 0, expense = 0;
+      weekTransactions.forEach(t => {
+        const tYMD = toYMD(new Date(t.created_at));
+        if (tYMD === ymd) {
+          if (t.type === 'income') income += t.amount;
+          else expense += t.amount;
+        }
+      });
+      return { date: day, income, expense };
+    });
+    
+    const totalIncome = dailyTotals.reduce((sum, d) => sum + d.income, 0);
+    const totalExpense = dailyTotals.reduce((sum, d) => sum + d.expense, 0);
+    const maxValue = Math.max(...dailyTotals.flatMap(d => [d.income, d.expense]), 1);
+    
+    setWeekData({ weekRange: { start, end, days }, dailyTotals, totalIncome, totalExpense, maxValue });
+  }, [transactions, userId]);
+  
+  if (!weekData) return null;
+  
+  const { dailyTotals, totalIncome, totalExpense, maxValue } = weekData;
+  const maxBarHeight = 140; // tinggi maks bar dalam px
+  const barWidth = 22;
+  const groupWidth = 56; // lebar per hari (2 bar + spacing)
+  const screenWidth = Dimensions.get('window').width;
+  const scrollWidth = Math.max(screenWidth - 32, dailyTotals.length * groupWidth);
+  
+  const dayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  
+  return (
+    <View style={styles.weeklyCard}>
+      {/* Header minggu & total */}
+      <View style={styles.weekHeader}>
+        <Text style={styles.weekRangeText}>
+          {formatDateShort(weekData.weekRange.start)} - {formatDateShort(weekData.weekRange.end)}
+        </Text>
+        <View style={styles.totalRow}>
+          <View style={styles.totalItem}>
+            <View style={[styles.legendDotSmall, { backgroundColor: "#44DA76" }]} />
+            <Text style={styles.totalLabel}>Income</Text>
+            <Text style={styles.totalValueGreen}>Rp {totalIncome.toLocaleString("id-ID")}</Text>
+          </View>
+          <View style={styles.totalItem}>
+            <View style={[styles.legendDotSmall, { backgroundColor: "#FF5E5E" }]} />
+            <Text style={styles.totalLabel}>Expense</Text>
+            <Text style={styles.totalValueRed}>Rp {totalExpense.toLocaleString("id-ID")}</Text>
+          </View>
+        </View>
+      </View>
+      
+      {/* Bar Chart */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chartScroll}>
+        <View style={{ width: scrollWidth, flexDirection: "row", justifyContent: "space-around", alignItems: "flex-end", paddingVertical: 12 }}>
+          {dailyTotals.map((item, idx) => {
+            const incomeHeight = maxValue === 0 ? 0 : (item.income / maxValue) * maxBarHeight;
+            const expenseHeight = maxValue === 0 ? 0 : (item.expense / maxValue) * maxBarHeight;
+            return (
+              <View key={idx} style={styles.barGroup}>
+                <View style={styles.barsContainer}>
+                  {/* Bar Income (hijau) */}
+                  <View style={[styles.bar, { height: Math.max(incomeHeight, 4), backgroundColor: "#44DA76", marginBottom: 4 }]} />
+                  {/* Bar Expense (merah) */}
+                  <View style={[styles.bar, { height: Math.max(expenseHeight, 4), backgroundColor: "#FF5E5E" }]} />
+                </View>
+                <Text style={styles.dayLabel}>{dayLabels[idx]}</Text>
+              </View>
+            );
+          })}
+        </View>
+      </ScrollView>
+      
+      {/* Legend */}
+      <View style={styles.legendContainer}>
+        <View style={styles.legendRow}>
+          <View style={[styles.legendColor, { backgroundColor: "#44DA76" }]} />
+          <Text style={styles.legendText}>Pemasukan</Text>
+        </View>
+        <View style={styles.legendRow}>
+          <View style={[styles.legendColor, { backgroundColor: "#FF5E5E" }]} />
+          <Text style={styles.legendText}>Pengeluaran</Text>
+        </View>
+      </View>
+    </View>
+  );
+};
 
 export default function Home() {
   const [menuVisible, setMenuVisible] = useState(false);
@@ -118,7 +259,7 @@ export default function Home() {
     setBalance(data?.balance ?? 0);
   };
 
-  // FETCH HISTORY
+  // FETCH HISTORY (all transactions)
   const fetchHistory = async () => {
     if (!userId) return;
     const { data } = await supabase
@@ -148,27 +289,6 @@ export default function Home() {
   const handleIncome = () => router.push("/(tabs)/income");
   const handleExpense = () => router.push("/(tabs)/expense");
 
-  // =========================
-  // DONUT CALC
-  // =========================
-  const totalIncome = transactions
-    .filter((t) => t.type === "income")
-    .reduce((sum, x) => sum + x.amount, 0);
-  const totalExpense = transactions
-    .filter((t) => t.type === "expense")
-    .reduce((sum, x) => sum + x.amount, 0);
-
-  const total = totalIncome + totalExpense;
-  const incomePercent = total === 0 ? 0 : (totalIncome / total) * 100;
-  const expensePercent = total === 0 ? 0 : (totalExpense / total) * 100;
-
-  const size = 220;
-  const strokeWidth = 28;
-  const radius = (size - strokeWidth) / 2;
-  const circumference = 2 * Math.PI * radius;
-  const incomeStroke = (incomePercent / 100) * circumference;
-  const expenseStroke = (expensePercent / 100) * circumference;
-
   return (
     <View style={styles.container}>
       {/* HEADER */}
@@ -194,188 +314,103 @@ export default function Home() {
         </TouchableOpacity>
       </View>
 
-      {/* BODY */}
-      <View style={styles.body}>
-        <View style={styles.balanceCard}>
-          <Text style={styles.balanceValue}>
-            Rp {balance?.toLocaleString("id-ID") ?? "0"}
-          </Text>
-        </View>
-
-        <Image
-          source={require("../../assets/images/GreenBackground.png")}
-          style={styles.backgroundImage}
-        />
-
-        <TouchableOpacity style={styles.buttontambah} onPress={handleIncome}>
-          <Image
-            source={require("../../assets/images/arrowdown.png")}
-            style={styles.arrowDown}
-          />
-          <Text style={styles.texttambah}>Tambah Pemasukan</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.buttonkurang} onPress={handleExpense}>
-          <Image
-            source={require("../../assets/images/arrowup.png")}
-            style={styles.arrowup}
-          />
-          <Text style={styles.texttambah}>Tambah Pengeluaran</Text>
-        </TouchableOpacity>
-
-        {/* ANALISIS TITLE */}
-        <View style={styles.analisisContainer}>
-          <Text style={styles.analisisText}>Analisis Bulan Ini</Text>
-          <TouchableOpacity
-            style={styles.detailButton}
-            onPress={() => router.push("/analysis")}
-          >
-            <Text style={styles.detailText}>Lihat Detail</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* DONUT CHART */}
-        {(totalIncome > 0 || totalExpense > 0) && (
-          <View style={styles.analysisCard}>
-            <View style={styles.chartContainer}>
-              <Svg width={size} height={size}>
-                {/* BACKGROUND */}
-                <Circle
-                  stroke="#222"
-                  fill="none"
-                  cx={size / 2}
-                  cy={size / 2}
-                  r={radius}
-                  strokeWidth={strokeWidth}
-                />
-
-                {/* INCOME – hanya tampil > 0 */}
-                {totalIncome > 0 && (
-                  <Circle
-                    stroke="#44DA76"
-                    fill="none"
-                    cx={size / 2}
-                    cy={size / 2}
-                    r={radius}
-                    strokeWidth={strokeWidth}
-                    strokeDasharray={`${incomeStroke}, ${circumference}`}
-                    strokeLinecap="round"
-                    transform={`rotate(-90 ${size / 2} ${size / 2})`}
-                  />
-                )}
-
-                {/* EXPENSE – hanya tampil > 0 */}
-                {totalExpense > 0 && (
-                  <Circle
-                    stroke="#FF5E5E"
-                    fill="none"
-                    cx={size / 2}
-                    cy={size / 2}
-                    r={radius}
-                    strokeWidth={strokeWidth}
-                    strokeDasharray={`${expenseStroke}, ${circumference}`}
-                    strokeDashoffset={-incomeStroke}
-                    strokeLinecap="round"
-                    transform={`rotate(-90 ${size / 2} ${size / 2})`}
-                  />
-                )}
-              </Svg>
-
-              <View style={styles.centerText}>
-                {totalIncome > 0 ? (
-                  <>
-                    <Text style={styles.percentText}>
-                      {incomePercent.toFixed(1)}%
-                    </Text>
-                    <Text style={styles.subText}>Pemasukan</Text>
-                  </>
-                ) : totalExpense > 0 ? (
-                  <>
-                    <Text style={styles.percentText}>
-                      {expensePercent.toFixed(1)}%
-                    </Text>
-                    <Text style={styles.subText}>Pengeluaran</Text>
-                  </>
-                ) : null}
-              </View>
-            </View>
-
-            <View style={styles.legendWrapper}>
-              {totalIncome > 0 && (
-                <View style={styles.legendRow}>
-                  <View
-                    style={[styles.legendDot, { backgroundColor: "#44DA76" }]}
-                  />
-                  <Text style={styles.legendText}>
-                    Pemasukan: Rp {totalIncome.toLocaleString("id-ID")}
-                  </Text>
-                </View>
-              )}
-              {totalExpense > 0 && (
-                <View style={styles.legendRow}>
-                  <View
-                    style={[styles.legendDot, { backgroundColor: "#FF5E5E" }]}
-                  />
-                  <Text style={styles.legendText}>
-                    Pengeluaran: Rp {totalExpense.toLocaleString("id-ID")}
-                  </Text>
-                </View>
-              )}
-            </View>
+      {/* BODY dengan ScrollView agar konten panjang bisa di-scroll */}
+      <ScrollView style={styles.bodyScroll} showsVerticalScrollIndicator={false}>
+        <View style={styles.body}>
+          <View style={styles.balanceCard}>
+            <Text style={styles.balanceValue}>
+              Rp {balance?.toLocaleString("id-ID") ?? "0"}
+            </Text>
           </View>
-        )}
 
-        {/* HISTORY */}
-        <View style={styles.historyWrapper}>
-          <View style={styles.historyHeader}>
-            <Text style={styles.historyTitle}>Riwayat Keuangan</Text>
-            <TouchableOpacity onPress={() => router.push("/history")}>
-              <Text style={styles.historyDetail}>Lihat Detail</Text>
+          <Image
+            source={require("../../assets/images/GreenBackground.png")}
+            style={styles.backgroundImage}
+          />
+
+          <TouchableOpacity style={styles.buttontambah} onPress={handleIncome}>
+            <Image
+              source={require("../../assets/images/arrowdown.png")}
+              style={styles.arrowDown}
+            />
+            <Text style={styles.texttambah}>Tambah Pemasukan</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.buttonkurang} onPress={handleExpense}>
+            <Image
+              source={require("../../assets/images/arrowup.png")}
+              style={styles.arrowup}
+            />
+            <Text style={styles.texttambah}>Tambah Pengeluaran</Text>
+          </TouchableOpacity>
+
+          {/* ANALISIS TITLE */}
+          <View style={styles.analisisContainer}>
+            <Text style={styles.analisisText}>Analisis Minggu Ini</Text>
+            <TouchableOpacity
+              style={styles.detailButton}
+              onPress={() => router.push("/analysis")}
+            >
+              <Text style={styles.detailText}>Lihat Detail</Text>
             </TouchableOpacity>
           </View>
 
-          {transactions.length === 0 && (
-            <Text style={{ color: "#777" }}>Belum ada transaksi.</Text>
-          )}
+          {/* WEEKLY BAR CHART - menggantikan donut */}
+          <WeeklyBarChart transactions={transactions} userId={userId} />
 
-          <View style={{ maxHeight: 310 }}>
-            {transactions.map((item) => {
-              const catName = item.categories?.name;
-              const icon =
-                item.type === "income"
-                  ? incomeIconMap[catName] ?? (
-                      <Wallet color="#74C1FF" size={22} />
-                    )
-                  : expenseIconMap[catName] ?? (
-                      <Package color="#74C1FF" size={20} />
-                    );
+          {/* HISTORY */}
+          <View style={styles.historyWrapper}>
+            <View style={styles.historyHeader}>
+              <Text style={styles.historyTitle}>Riwayat Keuangan</Text>
+              <TouchableOpacity onPress={() => router.push("/history")}>
+                <Text style={styles.historyDetail}>Lihat Detail</Text>
+              </TouchableOpacity>
+            </View>
 
-              return (
-                <View key={item.id} style={styles.historyCard}>
-                  <View style={styles.iconBox}>{icon}</View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.historyName}>
-                      {catName || "Tanpa Kategori"}
-                    </Text>
-                    <Text style={styles.historyType}>
-                      {item.type === "income" ? "Pemasukan" : "Pengeluaran"}
+            {transactions.length === 0 && (
+              <Text style={{ color: "#777", marginBottom: 20 }}>Belum ada transaksi.</Text>
+            )}
+
+            <View style={{ marginBottom: 30 }}>
+              {transactions.slice(0, 5).map((item) => {
+                const catName = item.categories?.name;
+                const icon =
+                  item.type === "income"
+                    ? incomeIconMap[catName] ?? <Wallet color="#74C1FF" size={22} />
+                    : expenseIconMap[catName] ?? <Package color="#74C1FF" size={20} />;
+
+                return (
+                  <View key={item.id} style={styles.historyCard}>
+                    <View style={styles.iconBox}>{icon}</View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.historyName}>
+                        {catName || "Tanpa Kategori"}
+                      </Text>
+                      <Text style={styles.historyType}>
+                        {item.type === "income" ? "Pemasukan" : "Pengeluaran"}
+                      </Text>
+                    </View>
+                    <Text
+                      style={[
+                        styles.historyAmount,
+                        { color: item.type === "income" ? "#44DA76" : "#FF5E5E" },
+                      ]}
+                    >
+                      {item.type === "income" ? "+" : "-"} Rp{" "}
+                      {item.amount.toLocaleString("id-ID")}
                     </Text>
                   </View>
-                  <Text
-                    style={[
-                      styles.historyAmount,
-                      { color: item.type === "income" ? "#44DA76" : "#FF5E5E" },
-                    ]}
-                  >
-                    {item.type === "income" ? "+" : "-"} Rp{" "}
-                    {item.amount.toLocaleString("id-ID")}
-                  </Text>
-                </View>
-              );
-            })}
+                );
+              })}
+              {transactions.length > 5 && (
+                <TouchableOpacity onPress={() => router.push("/history")}>
+                  <Text style={styles.viewAllText}>Lihat semua transaksi →</Text>
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
         </View>
-      </View>
+      </ScrollView>
 
       {/* MENU POPUP */}
       <Modal
@@ -415,7 +450,7 @@ export default function Home() {
 }
 
 // =========================
-// STYLES
+// STYLES (updated)
 // =========================
 const HEADER_TOP_PADDING = Platform.OS === "android" ? 20 : 50;
 
@@ -428,6 +463,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: HEADER_TOP_PADDING,
     marginTop: 25,
+    marginBottom: 25,
   },
   headerLeft: { flexDirection: "row", alignItems: "center" },
   avatar: { width: 50, height: 50, borderRadius: 30 },
@@ -445,7 +481,8 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     marginLeft: 10,
   },
-  body: { flex: 1, alignItems: "center", top: 40 },
+  bodyScroll: { flex: 1 },
+  body: { alignItems: "center", paddingBottom: 40 },
   menuButton: { padding: 6 },
   modalOverlay: { flex: 1 },
   balanceCard: {
@@ -462,7 +499,7 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     textAlign: "center",
   },
-  backgroundImage: { width: "90%", height: 210 },
+  backgroundImage: { width: "90%", height: 210, resizeMode: "cover", borderRadius: 20 },
   buttontambah: {
     width: 45,
     height: 45,
@@ -503,28 +540,117 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     marginTop: 35,
+    marginBottom: 8,
   },
-  analisisText: { color: "white", fontSize: 18 },
+  analisisText: { color: "white", fontSize: 18, fontWeight: "600" },
   detailButton: { paddingVertical: 8, paddingHorizontal: 14 },
   detailText: { color: "#44DA76", fontSize: 14, fontWeight: "600", left: 14 },
-  analysisCard: {
+  
+  // Weekly Bar Chart Styles
+  weeklyCard: {
     width: "90%",
     backgroundColor: "#252525",
-    borderRadius: 16,
-    padding: 18,
+    borderRadius: 20,
+    padding: 16,
     marginTop: 10,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.08)",
-    alignItems: "center",
   },
-  chartContainer: { justifyContent: "center", alignItems: "center" },
-  centerText: { position: "absolute", alignItems: "center" },
-  percentText: { color: "white", fontSize: 38, fontWeight: "800" },
-  subText: { color: "#888", fontSize: 15, marginTop: -3 },
-  legendWrapper: { marginTop: 20, width: "90%" },
-  legendRow: { flexDirection: "row", alignItems: "center", marginBottom: 5 },
-  legendDot: { width: 16, height: 16, borderRadius: 10, marginRight: 10 },
-  legendText: { color: "white", fontSize: 16 },
+  weekHeader: {
+    marginBottom: 12,
+    paddingHorizontal: 4,
+  },
+  weekRangeText: {
+    color: "#aaa",
+    fontSize: 14,
+    marginBottom: 8,
+    textAlign: "center",
+  },
+  totalRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
+  totalItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#1e1e1e",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  totalLabel: {
+    color: "white",
+    fontSize: 13,
+    marginLeft: 6,
+    marginRight: 6,
+  },
+  totalValueGreen: {
+    color: "#44DA76",
+    fontSize: 14,
+    fontWeight: "bold",
+  },
+  totalValueRed: {
+    color: "#FF5E5E",
+    fontSize: 14,
+    fontWeight: "bold",
+  },
+  chartScroll: {
+    marginVertical: 8,
+  },
+  barGroup: {
+    alignItems: "center",
+    width: 56,
+  },
+  barsContainer: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "center",
+    height: 150,
+    marginBottom: 8,
+  },
+  bar: {
+    width: 22,
+    marginHorizontal: 2,
+    borderRadius: 6,
+    minHeight: 4,
+  },
+  dayLabel: {
+    color: "#aaa",
+    fontSize: 12,
+    marginTop: 6,
+  },
+  legendContainer: {
+    flexDirection: "row",
+    justifyContent: "center",
+    marginTop: 16,
+    paddingTop: 8,
+    borderTopWidth: 0.5,
+    borderTopColor: "#333",
+  },
+  legendRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginHorizontal: 16,
+  },
+  legendColor: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    marginRight: 6,
+  },
+  legendText: {
+    color: "#ccc",
+    fontSize: 13,
+  },
+  legendDotSmall: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginRight: 4,
+  },
+  
+  // History Styles
   historyWrapper: { width: "90%", marginTop: 25 },
   historyHeader: {
     width: "100%",
@@ -534,7 +660,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   historyDetail: { color: "#44DA76", fontSize: 14, fontWeight: "600" },
-  historyTitle: { color: "white", fontSize: 18 },
+  historyTitle: { color: "white", fontSize: 18, fontWeight: "600" },
   historyCard: {
     backgroundColor: "#252525",
     padding: 14,
@@ -555,6 +681,13 @@ const styles = StyleSheet.create({
   historyName: { color: "white", fontSize: 16, fontWeight: "600" },
   historyType: { color: "#888", fontSize: 13 },
   historyAmount: { fontSize: 17, fontWeight: "700", marginLeft: 10 },
+  viewAllText: {
+    color: "#44DA76",
+    textAlign: "center",
+    marginTop: 8,
+    marginBottom: 20,
+    fontWeight: "500",
+  },
   menuWrapper: {
     position: "absolute",
     right: 16,
