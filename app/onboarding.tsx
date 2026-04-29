@@ -6,11 +6,14 @@ import {
   Dimensions,
   TouchableOpacity,
   Animated,
+  TextInput,
+  FlatList,
 } from "react-native";
 import { Image } from "expo-image";
 import { router } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "@/lib/supabase";
+import { getAllCurrencies } from "@/constants/currencies";
 
 const { width } = Dimensions.get("window");
 
@@ -22,72 +25,58 @@ const slides = [
       "Catat pengeluaran & pemasukan harian langsung dari genggaman.",
     image: require("../assets/images/dompet1.png"),
   },
-  {
-    id: "2",
-    title: "Lihat Ke Mana Uangmu Pergi",
-    subtitle:
-      "Visualisasi saldo dan histori pengeluaran agar kamu tetap bijak.",
-    image: require("../assets/images/uang.png"),
-  },
-  {
-    id: "3",
-    title: "",
-    subtitle: "",
-    image: null,
-  },
+  { id: "2" },
+  { id: "3" },
 ];
 
 const Onboarding: React.FC = () => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [theme, setTheme] = useState<"dark" | "light">("dark");
 
+  const [selectedCurrency, setSelectedCurrency] = useState("IDR");
+  const [search, setSearch] = useState("");
+  const [currencies, setCurrencies] = useState<any[]>([]);
+
   const scrollX = useRef(new Animated.Value(0)).current;
   const flatListRef = useRef<Animated.FlatList<any>>(null);
 
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const scaleAnim = useRef(new Animated.Value(0.8)).current;
-
-  // ✅ CHECK SESSION (FIXED)
+  // ✅ INIT (OFFLINE + SESSION)
   useEffect(() => {
-    const checkSession = async () => {
+    const init = async () => {
       try {
+        // ambil currency offline
+        const data = getAllCurrencies();
+        setCurrencies(data);
+
+        // check session
         const storedSession = await AsyncStorage.getItem("session");
         if (storedSession) {
           const { access_token, refresh_token } = JSON.parse(storedSession);
-          const { data, error } = await supabase.auth.setSession({
-            access_token,
-            refresh_token,
-          });
-          if (!error && data.session) {
+
+          const { data: sessionData, error } =
+            await supabase.auth.setSession({
+              access_token,
+              refresh_token,
+            });
+
+          if (!error && sessionData.session) {
             router.replace("/home");
           }
         }
       } catch (err) {
-        console.log("Session error:", err);
+        console.log("Init error:", err);
       }
     };
-    checkSession();
+
+    init();
   }, []);
 
-  // 🎬 animation
-  useEffect(() => {
-    Animated.sequence([
-      Animated.delay(300),
-      Animated.parallel([
-        Animated.timing(fadeAnim, {
-          toValue: 1,
-          duration: 600,
-          useNativeDriver: true,
-        }),
-        Animated.spring(scaleAnim, {
-          toValue: 1,
-          friction: 6,
-          tension: 100,
-          useNativeDriver: true,
-        }),
-      ]),
-    ]).start();
-  }, []);
+  // 🔍 FILTER
+  const filteredCurrencies = currencies.filter(
+    (item) =>
+      item.code.toLowerCase().includes(search.toLowerCase()) ||
+      item.name.toLowerCase().includes(search.toLowerCase())
+  );
 
   const handleNext = async () => {
     if (currentIndex < slides.length - 1) {
@@ -96,6 +85,7 @@ const Onboarding: React.FC = () => {
       });
     } else {
       await AsyncStorage.setItem("theme", theme);
+      await AsyncStorage.setItem("currency", selectedCurrency);
       router.push("/auth");
     }
   };
@@ -124,17 +114,69 @@ const Onboarding: React.FC = () => {
         onViewableItemsChanged={handleViewableItemsChanged}
         viewabilityConfig={{ viewAreaCoveragePercentThreshold: 50 }}
         renderItem={({ item, index }) => {
-          // 🎯 SLIDE 3 (THEME PICKER)
+          // =====================
+          // 💰 SLIDE 2: CURRENCY
+          // =====================
+          if (index === 1) {
+            return (
+              <View style={{ width, paddingHorizontal: 20, marginTop: 120 }}>
+                <Text style={styles.title}>Pilih Mata Uang</Text>
+                <Text style={styles.subtitle}>
+                  Semua transaksi akan pakai ini 💰
+                </Text>
+
+                <TextInput
+                  placeholder="Cari mata uang..."
+                  placeholderTextColor="#888"
+                  value={search}
+                  onChangeText={setSearch}
+                  style={styles.searchInput}
+                />
+
+                <FlatList
+                  data={filteredCurrencies}
+                  keyExtractor={(item) => item.code}
+                  showsVerticalScrollIndicator={false}
+                  style={{ marginTop: 20, height: 350 }}
+                  ListEmptyComponent={
+                    <Text style={{ color: "#888", marginTop: 20 }}>
+                      Tidak ditemukan 😢
+                    </Text>
+                  }
+                  renderItem={({ item }) => (
+                    <TouchableOpacity
+                      onPress={() => setSelectedCurrency(item.code)}
+                      style={[
+                        styles.currencyItem,
+                        selectedCurrency === item.code &&
+                          styles.currencyActive,
+                      ]}
+                    >
+                      <Text style={styles.currencyCode}>
+                        {item.code}
+                      </Text>
+                      <Text style={styles.currencyName}>
+                        {item.name}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                />
+              </View>
+            );
+          }
+
+          // =====================
+          // 🎨 SLIDE 3: THEME
+          // =====================
           if (index === 2) {
             return (
               <View style={{ width, alignItems: "center", marginTop: 200 }}>
-                <Text style={styles.title}>Pilih Tampilan Kamu</Text>
+                <Text style={styles.title}>Pilih Tampilan</Text>
                 <Text style={styles.subtitle}>
-                  Sesuaikan dengan gaya kamu 😎
+                  Sesuaikan gaya kamu 😎
                 </Text>
 
                 <View style={styles.themeContainer}>
-                  {/* DARK */}
                   <TouchableOpacity
                     onPress={() => setTheme("dark")}
                     style={[
@@ -146,7 +188,6 @@ const Onboarding: React.FC = () => {
                     <Text style={styles.themeText}>Gelap</Text>
                   </TouchableOpacity>
 
-                  {/* LIGHT */}
                   <TouchableOpacity
                     onPress={() => setTheme("light")}
                     style={[
@@ -163,6 +204,9 @@ const Onboarding: React.FC = () => {
             );
           }
 
+          // =====================
+          // 🟢 SLIDE 1
+          // =====================
           return (
             <View style={{ width, alignItems: "center" }}>
               <View style={styles.imageWrapper}>
@@ -209,29 +253,29 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#151716",
-    justifyContent: "center",
   },
+
   imageWrapper: {
     marginTop: 200,
-    width: 380,
-    height: 380,
-    justifyContent: "center",
-    alignItems: "center",
   },
+
   image: {
     width: 400,
     height: 400,
     borderRadius: 500,
   },
+
   textWrapper: {
     paddingHorizontal: 25,
     marginTop: 40,
   },
+
   title: {
     fontSize: 28,
     color: "white",
     fontWeight: "bold",
   },
+
   subtitle: {
     fontSize: 16,
     color: "white",
@@ -243,6 +287,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginVertical: 25,
   },
+
   dot: {
     width: 8,
     height: 8,
@@ -257,19 +302,54 @@ const styles = StyleSheet.create({
     marginHorizontal: 30,
     marginBottom: 60,
   },
+
   buttonText: {
     color: "#fff",
     textAlign: "center",
-    fontSize: 16,
     fontWeight: "bold",
   },
 
-  // 🎨 THEME UI
+  searchInput: {
+    marginTop: 20,
+    backgroundColor: "#1E1E1E",
+    padding: 14,
+    borderRadius: 15,
+    color: "white",
+  },
+
+  currencyItem: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    padding: 16,
+    borderRadius: 15,
+    backgroundColor: "#1E1E1E",
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: "#333",
+  },
+
+  currencyActive: {
+    borderColor: "#44DA76",
+  },
+
+  currencyCode: {
+    color: "#44DA76",
+    fontWeight: "bold",
+    fontSize: 20,
+    alignItems: "center",
+  },
+
+  currencyName: {
+    color: "white",
+    alignItems: "center",
+  },
+
   themeContainer: {
     flexDirection: "row",
     marginTop: 40,
     gap: 20,
   },
+
   themeCard: {
     width: 130,
     height: 150,
@@ -280,23 +360,29 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: "#333",
   },
+
   lightCard: {
     backgroundColor: "#fff",
   },
+
   themeActive: {
     borderColor: "#44DA76",
   },
+
   themeActiveLight: {
     borderColor: "#FFD93D",
   },
+
   themeIcon: {
     fontSize: 40,
     marginBottom: 10,
   },
+
   themeText: {
     color: "white",
     fontWeight: "bold",
   },
+
   themeTextLight: {
     color: "black",
     fontWeight: "bold",
