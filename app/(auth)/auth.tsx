@@ -49,7 +49,9 @@ const AuthPage = () => {
             refresh_token,
           });
           if (!error && data.session) {
-            router.replace("/home"); // langsung masuk ke home
+            // TESTING: SELALU KE PREFERENCES PAGE DULU
+            // Tidak peduli sudah pernah onboarding atau belum
+            router.replace("/preferences");
           }
         }
       } catch (err) {
@@ -73,95 +75,104 @@ const AuthPage = () => {
 
   // === HANDLE LOGIN / REGISTER ===
   const handleAuth = async () => {
-  if (!email || !password || (!isLogin && !username)) {
-    showAlert("Error", "Harap isi semua kolom.", "error");
-    return;
-  }
+    if (!email || !password || (!isLogin && !username)) {
+      showAlert("Error", "Harap isi semua kolom.", "error");
+      return;
+    }
 
-  setLoading(true);
+    setLoading(true);
 
-  try {
-    if (isLogin) {
-      // === LOGIN ===
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
+    try {
+      if (isLogin) {
+        // === LOGIN ===
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
 
-      if (error) {
-        showAlert("Login Gagal", error.message, "error");
-        return;
-      }
-
-      showAlert("Berhasil", "Login berhasil!", "success");
-
-      if (rememberMe && data.session) {
-        await AsyncStorage.setItem("session", JSON.stringify(data.session));
-      }
-
-      setTimeout(() => router.replace("/home"), 800);
-    } else {
-      // === REGISTER ===
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            username: username || "user_" + Math.random().toString(36).substring(2, 8),
-          },
-        },
-      });
-
-      if (error) {
-        console.log("REGISTER ERROR:", error);
-        showAlert("Gagal Daftar", error.message, "error");
-        return;
-      }
-
-      // 🔥 FIX PENTING: insert profile manual (ANTI ERROR TRIGGER)
-      if (data.user) {
-        const { error: profileError } = await supabase
-          .from("profiles")
-          .insert({
-            id: data.user.id,
-            username: username,
-            email: email,
-          });
-
-        if (profileError) {
-          console.log("PROFILE ERROR:", profileError);
-          showAlert(
-            "Warning",
-            "Akun dibuat, tapi profile gagal disimpan",
-            "info"
-          );
+        if (error) {
+          showAlert("Login Gagal", error.message, "error");
+          return;
         }
-      }
 
-      if (!data.session) {
-        showAlert(
-          "Daftar Berhasil",
-          "Periksa email Anda untuk verifikasi sebelum login.",
-          "info"
-        );
-      } else {
+        showAlert("Berhasil", "Login berhasil!", "success");
+
         if (rememberMe && data.session) {
           await AsyncStorage.setItem("session", JSON.stringify(data.session));
         }
 
-        showAlert("Berhasil", "Akun berhasil dibuat!", "success");
-        setTimeout(() => router.replace("/home"), 800);
-      }
+        // TESTING: SELALU KE PREFERENCES PAGE
+        setTimeout(() => {
+          router.replace("/preferences");
+        }, 800);
+      } else {
+        // === REGISTER ===
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: {
+              username: username || "user_" + Math.random().toString(36).substring(2, 8),
+            },
+          },
+        });
 
-      setIsLogin(true);
+        if (error) {
+          console.log("REGISTER ERROR:", error);
+          showAlert("Gagal Daftar", error.message, "error");
+          return;
+        }
+
+        // 🔥 FIX PENTING: insert profile manual (ANTI ERROR TRIGGER)
+        if (data.user) {
+          const { error: profileError } = await supabase
+            .from("profiles")
+            .insert({
+              id: data.user.id,
+              username: username,
+              email: email,
+            });
+
+          if (profileError) {
+            console.log("PROFILE ERROR:", profileError);
+            showAlert(
+              "Warning",
+              "Akun dibuat, tapi profile gagal disimpan",
+              "info"
+            );
+          }
+        }
+
+        if (!data.session) {
+          showAlert(
+            "Daftar Berhasil",
+            "Periksa email Anda untuk verifikasi sebelum login.",
+            "info"
+          );
+          // TESTING: tetap ke preferences meskipun perlu verifikasi
+          setTimeout(() => {
+            router.replace("/preferences");
+          }, 800);
+        } else {
+          if (rememberMe && data.session) {
+            await AsyncStorage.setItem("session", JSON.stringify(data.session));
+          }
+
+          showAlert("Berhasil", "Akun berhasil dibuat!", "success");
+          
+          // TESTING: User baru langsung ke preferences
+          setTimeout(() => router.replace("/preferences"), 800);
+        }
+
+        setIsLogin(true);
+      }
+    } catch (err) {
+      console.log("ERROR:", err);
+      showAlert("Error", "Terjadi kesalahan sistem", "error");
+    } finally {
+      setLoading(false);
     }
-  } catch (err) {
-    console.log("ERROR:", err);
-    showAlert("Error", "Terjadi kesalahan sistem", "error");
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
   // === TAMPILKAN ICON ALERT SESUAI TYPE ===
   const renderAlertIcon = () => {
@@ -175,16 +186,8 @@ const AuthPage = () => {
     }
   };
 
-  const handleBack = () => {
-    router.replace("/onboarding");
-  };
-
   return (
     <View style={styles.container}>
-      <TouchableOpacity onPress={handleBack} style={styles.back}>
-        <ChevronLeft color="#44DA76" size={35} style={{ marginTop: 20 }} />
-      </TouchableOpacity>
-
       <Text style={styles.title}>
         {isLogin ? "Masuk ke Akun Anda" : "Buat Akun Baru Anda"}
       </Text>
@@ -261,28 +264,28 @@ const AuthPage = () => {
         </View>
 
         <View style={styles.checkboxContainer}>
-        {/* === Checkbox Remember Me === */}
-        {isLogin && (
-          <View style={styles.rememberContainer}>
-            <TouchableOpacity
-              onPress={() => setRememberMe(!rememberMe)}
-              style={[styles.checkbox, rememberMe && styles.checkboxActive]}
-            >
-              {rememberMe && <Check size={16} color="black" />}
-            </TouchableOpacity>
-            <Text style={styles.rememberText}>Ingat saya</Text>
-          </View>
-        )}
+          {/* === Checkbox Remember Me === */}
+          {isLogin && (
+            <View style={styles.rememberContainer}>
+              <TouchableOpacity
+                onPress={() => setRememberMe(!rememberMe)}
+                style={[styles.checkbox, rememberMe && styles.checkboxActive]}
+              >
+                {rememberMe && <Check size={16} color="black" />}
+              </TouchableOpacity>
+              <Text style={styles.rememberText}>Ingat saya</Text>
+            </View>
+          )}
 
-        {/* ==== Lupa Sandi === */}
-        {isLogin && (
-          <TouchableOpacity
-          onPress={() => router.push("/forgot")}
-          style={styles.forgotButton}
-          >
-            <Text style={styles.forgotText}>Lupa Kata Sandi?</Text>
-          </TouchableOpacity>
-        )}
+          {/* ==== Lupa Sandi === */}
+          {isLogin && (
+            <TouchableOpacity
+              onPress={() => router.push("/forgot")}
+              style={styles.forgotButton}
+            >
+              <Text style={styles.forgotText}>Lupa Kata Sandi?</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* === Button === */}
@@ -397,18 +400,16 @@ const styles = StyleSheet.create({
   },
   passwordInput: { flex: 1, height: 50, fontSize: 16, color: "black" },
 
-
   checkboxContainer: {
-  justifyContent: "space-between",
-  flexDirection: "row",
-  alignItems: "center",
-  marginBottom: 20,
+    justifyContent: "space-between",
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 20,
   },
 
   rememberContainer: {
     flexDirection: "row",
     alignItems: "center",
-
   },
   checkbox: {
     width: 20,
@@ -418,15 +419,17 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     marginRight: 10,
     marginLeft: 5,
-
   },
   checkboxActive: { borderColor: "black" },
   rememberText: { color: "#333", fontSize: 15 },
 
-  forgotButton: {
-
+  forgotButton: {},
+  forgotText: {
+    color: "#44DA76",
+    fontSize: 15,
+    textDecorationLine: "underline",
+    fontWeight: "light",
   },
-  forgotText: { color: "#44DA76", fontSize: 15, textDecorationLine: "underline", fontWeight: "light" },
 
   button: {
     backgroundColor: "#44DA76",

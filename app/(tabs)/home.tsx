@@ -100,6 +100,23 @@ function toYMD(date: Date): string {
   return date.toISOString().split('T')[0];
 }
 
+// ==============================
+// FUNGSI UNTUK SAPAAN BERDASARKAN WAKTU
+// ==============================
+function getGreetingByTime(): string {
+  const hour = new Date().getHours();
+  
+  if (hour >= 3 && hour < 11) {
+    return "Selamat Pagi";
+  } else if (hour >= 11 && hour < 15) {
+    return "Selamat Siang";
+  } else if (hour >= 15 && hour < 18) {
+    return "Selamat Sore";
+  } else {
+    return "Selamat Malam";
+  }
+}
+
 // Komponen Bar Chart Mingguan
 const WeeklyBarChart = ({ transactions, userId }: { transactions: any[]; userId: string | null }) => {
   const [weekData, setWeekData] = useState<{
@@ -217,6 +234,9 @@ export default function Home() {
   const [balance, setBalance] = useState<number | null>(null);
   const [transactions, setTransactions] = useState<any[]>([]);
 
+  // Menyimpan sapaan yang sudah ditentukan (akan update setiap render)
+  const greeting = getGreetingByTime();
+
   // FETCH USER
   useEffect(() => {
     let mounted = true;
@@ -301,9 +321,12 @@ export default function Home() {
               <Ionicons name="person-outline" size={22} color="white" />
             </View>
           )}
-          <Text style={styles.usernameText}>
-            {loadingUser ? "Memuat..." : user?.username ?? "Guest"}
-          </Text>
+          <View style={styles.userInfoContainer}>
+            <Text style={styles.greetingText}>{greeting}</Text>
+            <Text style={styles.usernameText}>
+              {loadingUser ? "Memuat..." : user?.username ?? "Guest"}
+            </Text>
+          </View>
         </View>
 
         <TouchableOpacity
@@ -433,8 +456,8 @@ export default function Home() {
                   router.push("/profile");
                 }}
               >
-                <Ionicons name="person-outline" size={20} color="white" />
-                <Text style={styles.menuProfile}>Pengaturan Profil</Text>
+                <Ionicons name="settings-outline" size={20} color="white" />
+                <Text style={styles.menuProfile}>Pengaturan</Text>
               </TouchableOpacity>
 
               <TouchableOpacity style={styles.menuItem} onPress={handleLogout}>
@@ -450,7 +473,7 @@ export default function Home() {
 }
 
 // =========================
-// STYLES (updated)
+// STYLES (updated with greeting style)
 // =========================
 const HEADER_TOP_PADDING = Platform.OS === "android" ? 20 : 50;
 
@@ -466,6 +489,14 @@ const styles = StyleSheet.create({
     marginBottom: 25,
   },
   headerLeft: { flexDirection: "row", alignItems: "center" },
+  userInfoContainer: {
+    marginLeft: 10,
+  },
+  greetingText: {
+    color: "#888",
+    fontSize: 12,
+    marginBottom: 2,
+  },
   avatar: { width: 50, height: 50, borderRadius: 30 },
   avatarPlaceholder: {
     width: 50,
@@ -479,7 +510,6 @@ const styles = StyleSheet.create({
     color: "white",
     fontSize: 18,
     fontWeight: "bold",
-    marginLeft: 10,
   },
   bodyScroll: { flex: 1 },
   body: { alignItems: "center", paddingBottom: 40 },

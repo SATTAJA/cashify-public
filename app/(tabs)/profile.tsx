@@ -47,7 +47,7 @@ export default function Profile() {
           color="#44DA76"
           onPress={() => router.back()}
         />
-        <Text style={styles.headerTitle}>Profil</Text>
+        <Text style={styles.headerTitle}>Pengaturan</Text>
         <View style={{ width: 26 }} /> 
       </View>
 
