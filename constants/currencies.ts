@@ -1,66 +1,66 @@
-import currencyCodes from "currency-codes";
+// constants/currencies.ts
 
-type Currency = {
+export type Currency = {
   code: string;
   name: string;
   country: string;
-};
-
-// 🔥 mapping negara utama biar UI lebih masuk akal
-const preferredCountries: Record<string, string> = {
-  IDR: "Indonesia",
-  USD: "United States",
-  EUR: "European Union",
-  GBP: "United Kingdom",
-  JPY: "Japan",
-  CNY: "China",
-  KRW: "South Korea",
-  SGD: "Singapore",
-  MYR: "Malaysia",
-  THB: "Thailand",
-  AUD: "Australia",
-  CAD: "Canada",
-  CHF: "Switzerland",
-  HKD: "Hong Kong",
-  NZD: "New Zealand",
-  INR: "India",
-  RUB: "Russia",
-  SAR: "Saudi Arabia",
-  AED: "United Arab Emirates",
+  symbol: string;
 };
 
 export const getAllCurrencies = (): Currency[] => {
-  const seen = new Set<string>();
+  return [
+    // Asia Tenggara
+    { code: "IDR", name: "Rupiah", country: "Indonesia", symbol: "Rp" },
+    { code: "USD", name: "US Dollar", country: "Amerika Serikat", symbol: "$" },
+    { code: "SGD", name: "Singapore Dollar", country: "Singapura", symbol: "S$" },
+    { code: "MYR", name: "Malaysian Ringgit", country: "Malaysia", symbol: "RM" },
+    { code: "THB", name: "Thai Baht", country: "Thailand", symbol: "฿" },
+    { code: "VND", name: "Vietnamese Dong", country: "Vietnam", symbol: "₫" },
+    { code: "PHP", name: "Philippine Peso", country: "Filipina", symbol: "₱" },
+    
+    // Asia Timur
+    { code: "JPY", name: "Japanese Yen", country: "Jepang", symbol: "¥" },
+    { code: "CNY", name: "Chinese Yuan", country: "China", symbol: "¥" },
+    { code: "KRW", name: "South Korean Won", country: "Korea Selatan", symbol: "₩" },
+    
+    // Asia Selatan
+    { code: "INR", name: "Indian Rupee", country: "India", symbol: "₹" },
+    
+    // Eropa
+    { code: "EUR", name: "Euro", country: "Eropa", symbol: "€" },
+    { code: "GBP", name: "British Pound", country: "Inggris", symbol: "£" },
+    
+    // Oceania
+    { code: "AUD", name: "Australian Dollar", country: "Australia", symbol: "A$" },
+    
+    // Timur Tengah
+    { code: "SAR", name: "Saudi Riyal", country: "Arab Saudi", symbol: "﷼" },
+    { code: "AED", name: "UAE Dirham", country: "Uni Emirat Arab", symbol: "د.إ" },
+    
+    // Tambahan lainnya
+    { code: "CAD", name: "Canadian Dollar", country: "Kanada", symbol: "C$" },
+    { code: "CHF", name: "Swiss Franc", country: "Swiss", symbol: "Fr" },
+    { code: "NZD", name: "New Zealand Dollar", country: "Selandia Baru", symbol: "NZ$" },
+    { code: "ZAR", name: "South African Rand", country: "Afrika Selatan", symbol: "R" },
+    { code: "RUB", name: "Russian Ruble", country: "Rusia", symbol: "₽" },
+    { code: "BRL", name: "Brazilian Real", country: "Brazil", symbol: "R$" },
+    { code: "MXN", name: "Mexican Peso", country: "Meksiko", symbol: "$" },
+    { code: "TRY", name: "Turkish Lira", country: "Turki", symbol: "₺" },
+    { code: "HKD", name: "Hong Kong Dollar", country: "Hong Kong", symbol: "HK$" },
+    { code: "TWD", name: "New Taiwan Dollar", country: "Taiwan", symbol: "NT$" },
+  ];
+};
 
-  return currencyCodes.data
-    .filter((item) => {
-      return (
-        item.code &&
-        item.currency &&
-        item.countries &&
-        item.countries.length > 0 &&
-        !item.code.startsWith("X") && // buang kode aneh
-        item.number && // harus punya numeric ISO
-        !seen.has(item.code) // buang duplikat
-      );
-    })
-    .map((item) => {
-      seen.add(item.code);
+// Fungsi untuk mendapatkan simbol mata uang berdasarkan kode
+export const getCurrencySymbol = (code: string): string => {
+  const currencies = getAllCurrencies();
+  const currency = currencies.find(c => c.code === code);
+  return currency?.symbol || code;
+};
 
-      return {
-        code: item.code,
-        name: item.currency,
-
-        // 🔥 pakai mapping dulu, fallback ke data asli
-        country:
-          preferredCountries[item.code] ||
-          item.countries.find((c) =>
-            c.toLowerCase().includes("united")
-          ) ||
-          item.countries[0],
-      };
-    })
-
-    // 🔥 sort lebih enak dibaca (nama dulu, bukan kode)
-    .sort((a, b) => a.name.localeCompare(b.name));
+// Fungsi untuk mendapatkan nama mata uang berdasarkan kode
+export const getCurrencyName = (code: string): string => {
+  const currencies = getAllCurrencies();
+  const currency = currencies.find(c => c.code === code);
+  return currency?.name || code;
 };

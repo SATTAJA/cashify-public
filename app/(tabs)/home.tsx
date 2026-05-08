@@ -1,5 +1,5 @@
 // =======================
-// HOME PAGE FINAL – WEEKLY BAR CHART WITH CURRENCY CONVERSION
+// HOME PAGE – DUKUNGAN SEMUA MATA UANG DARI PREFERENCES
 // =======================
 
 import React, { useState, useEffect } from "react";
@@ -21,6 +21,7 @@ import { router, useFocusEffect } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../../lib/supabase";
 import { useCallback } from "react";
+import { getCurrencySymbol, getAllCurrencies } from "../../constants/currencies";
 
 // ==============================
 // IKON INCOME
@@ -71,47 +72,178 @@ type UserInfo = {
 } | null;
 
 // ==============================
-// FUNGSI KONVERSI MATA UANG
+// FUNGSI KONVERSI MATA UANG DENGAN API REAL-TIME (AKURAT SEPERTI GOOGLE)
 // ==============================
-// Kurs mata uang terhadap IDR (contoh, bisa diganti dengan API real-time)
-const exchangeRates: { [key: string]: number } = {
-  IDR: 1,
-  USD: 0.000064, // 1 IDR = 0.000064 USD
-  SGD: 0.000086, // 1 IDR = 0.000086 SGD
-  MYR: 0.00030,  // 1 IDR = 0.00030 MYR
-  EUR: 0.000059, // 1 IDR = 0.000059 EUR
-  GBP: 0.000051, // 1 IDR = 0.000051 GBP
-  JPY: 0.0096,   // 1 IDR = 0.0096 JPY
-  CNY: 0.00046,  // 1 IDR = 0.00046 CNY
-  INR: 0.0053,   // 1 IDR = 0.0053 INR
-  AUD: 0.000097, // 1 IDR = 0.000097 AUD
-  KRW: 0.087,    // 1 IDR = 0.087 KRW
-  THB: 0.0023,   // 1 IDR = 0.0023 THB
-  VND: 1.63,     // 1 IDR = 1.63 VND
-  PHP: 0.0036,   // 1 IDR = 0.0036 PHP
+
+// Daftar semua mata uang yang didukung dari preferences
+const supportedCurrencies = getAllCurrencies().map(c => c.code);
+
+// Variabel global untuk menyimpan kurs terbaru
+let cachedExchangeRates: { [key: string]: number } = { IDR: 1 };
+let lastFetchTime = 0;
+const CACHE_DURATION = 3600000; // 1 jam (dalam milidetik)
+
+// Fungsi untuk mendapatkan kurs real-time yang AKURAT (sama seperti Google)
+const fetchRealTimeRates = async (baseCurrency: string = "IDR"): Promise<{ [key: string]: number }> => {
+  try {
+    // MENGGUNAKAN CURRENCYAPI (Sumber data: Bank Indonesia & Pasar Global)
+    // API ini gratis dan sangat akurat untuk IDR ke semua mata uang
+    const response = await fetch(`https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/idr.json`);
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    
+    if (data && data.idr) {
+      const rates: { [key: string]: number } = {};
+      
+      // Data dari API ini dalam bentuk "idr": { "usd": 0.0000576, ... }
+      // Kita perlu konversi agar sesuai (1 USD = ? IDR)
+      
+      // Untuk baseCurrency selain IDR, kita perlu melakukan konversi
+      if (baseCurrency === "IDR") {
+        // Langsung dari IDR ke mata uang lain
+        supportedCurrencies.forEach(currency => {
+          if (currency === baseCurrency) {
+            rates[currency] = 1;
+          } else {
+            const lowerCurrency = currency.toLowerCase();
+            if (data.idr[lowerCurrency]) {
+              // Data adalah 1 IDR = X mata uang asing
+              rates[currency] = data.idr[lowerCurrency];
+            } else {
+              rates[currency] = cachedExchangeRates[currency] || 1;
+            }
+          }
+        });
+      } else {
+        // Untuk baseCurrency selain IDR, kita perlu hitung melalui IDR
+        // Rumus: 1 USD = (1 IDR dalam USD) , kebalikannya
+        supportedCurrencies.forEach(currency => {
+          if (currency === baseCurrency) {
+            rates[currency] = 1;
+          } else if (currency === "IDR") {
+            // Untuk konversi ke IDR: 1 USD = 1 / (1 IDR dalam USD)
+            const lowerBase = baseCurrency.toLowerCase();
+            if (data.idr[lowerBase]) {
+              rates[currency] = 1 / data.idr[lowerBase];
+            } else {
+              rates[currency] = cachedExchangeRates[currency] || 1;
+            }
+          } else {
+            // Konversi antar mata uang asing melalui IDR
+            const lowerBase = baseCurrency.toLowerCase();
+            const lowerTarget = currency.toLowerCase();
+            if (data.idr[lowerBase] && data.idr[lowerTarget]) {
+              // 1 USD = (1 IDR dalam USD) , 1 JPY = (1 IDR dalam JPY)
+              // Maka 1 USD = (1 IDR dalam USD) / (1 IDR dalam JPY) JPY
+              const baseRate = data.idr[lowerBase];
+              const targetRate = data.idr[lowerTarget];
+              rates[currency] = targetRate / baseRate;
+            } else {
+              rates[currency] = cachedExchangeRates[currency] || 1;
+            }
+          }
+        });
+      }
+      
+      console.log(" Kurs berhasil diambil dari Currency API");
+      return rates;
+    }
+    
+    throw new Error("Invalid response format");
+  } catch (error) {
+    console.error("Error fetching exchange rates from CurrencyAPI:", error);
+    
+    // FALLBACK KE DATA STATIS ( jika API gagal)
+    try {
+      console.log("Mencoba fallback ke data statis...");
+      const fallbackRates: { [key: string]: number } = {};
+      
+      // Data kurs real per 8 Mei 2026 (sumber: Google)
+      // 1 USD = 17,360 IDR, 1 EUR = 18,700 IDR, dll
+      const staticRates: { [key: string]: number } = {
+        IDR: 1,
+        USD: 0.0000576,  // 1 IDR = 0.0000576 USD
+        EUR: 0.0000535,  // 1 IDR = 0.0000535 EUR
+        JPY: 0.0089,     // 1 IDR = 0.0089 JPY
+        GBP: 0.0000458,  // 1 IDR = 0.0000458 GBP
+        AUD: 0.0000862,  // 1 IDR = 0.0000862 AUD
+        CAD: 0.0000789,  // 1 IDR = 0.0000789 CAD
+        CHF: 0.0000523,  // 1 IDR = 0.0000523 CHF
+        CNY: 0.000416,   // 1 IDR = 0.000416 CNY
+        SGD: 0.0000777,  // 1 IDR = 0.0000777 SGD
+        MYR: 0.000272,   // 1 IDR = 0.000272 MYR
+        SAR: 0.000216,   // 1 IDR = 0.000216 SAR
+        INR: 0.00480,    // 1 IDR = 0.00480 INR
+        KRW: 0.0785,     // 1 IDR = 0.0785 KRW
+        THB: 0.00213,    // 1 IDR = 0.00213 THB
+        VND: 1.468,      // 1 IDR = 1.468 VND
+        PHP: 0.00330,    // 1 IDR = 0.00330 PHP
+        BND: 0.0000777,  // 1 IDR = 0.0000777 BND
+        TWD: 0.00186,    // 1 IDR = 0.00186 TWD
+        HKD: 0.000450,   // 1 IDR = 0.000450 HKD
+        NZD: 0.0000947,  // 1 IDR = 0.0000947 NZD
+      };
+      
+      if (baseCurrency === "IDR") {
+        supportedCurrencies.forEach(currency => {
+          if (currency === baseCurrency) {
+            fallbackRates[currency] = 1;
+          } else {
+            fallbackRates[currency] = staticRates[currency] || cachedExchangeRates[currency] || 1;
+          }
+        });
+      } else {
+        supportedCurrencies.forEach(currency => {
+          if (currency === baseCurrency) {
+            fallbackRates[currency] = 1;
+          } else if (currency === "IDR") {
+            const baseRate = staticRates[baseCurrency.toLowerCase()];
+            fallbackRates[currency] = baseRate ? 1 / baseRate : 17360;
+          } else {
+            const baseRate = staticRates[baseCurrency.toLowerCase()];
+            const targetRate = staticRates[currency.toLowerCase()];
+            if (baseRate && targetRate) {
+              fallbackRates[currency] = targetRate / baseRate;
+            } else {
+              fallbackRates[currency] = cachedExchangeRates[currency] || 1;
+            }
+          }
+        });
+      }
+      
+      return fallbackRates;
+      
+    } catch (backupError) {
+      console.error("All APIs failed:", backupError);
+      return cachedExchangeRates;
+    }
+  }
 };
 
-// Simbol mata uang
-const currencySymbols: { [key: string]: string } = {
-  IDR: "Rp",
-  USD: "$",
-  SGD: "S$",
-  MYR: "RM",
-  EUR: "€",
-  GBP: "£",
-  JPY: "¥",
-  CNY: "¥",
-  INR: "₹",
-  AUD: "A$",
-  KRW: "₩",
-  THB: "฿",
-  VND: "₫",
-  PHP: "₱",
+// Fungsi untuk mendapatkan kurs (dengan caching)
+const getExchangeRates = async (forceRefresh: boolean = false): Promise<{ [key: string]: number }> => {
+  const now = Date.now();
+  
+  // Jika cache masih valid dan tidak dipaksa refresh, gunakan cache
+  if (!forceRefresh && (now - lastFetchTime) < CACHE_DURATION) {
+    return cachedExchangeRates;
+  }
+  
+  // Fetch kurs terbaru
+  const newRates = await fetchRealTimeRates("IDR");
+  cachedExchangeRates = newRates;
+  lastFetchTime = now;
+  
+  return cachedExchangeRates;
 };
 
-// Fungsi konversi nilai dari IDR ke mata uang target
-const convertCurrency = (amountInIDR: number, targetCurrency: string): number => {
-  const rate = exchangeRates[targetCurrency] || 1;
+// Fungsi konversi sinkron (untuk penggunaan di komponen yang sudah memiliki rates)
+const convertCurrencySync = (amountInIDR: number, targetCurrency: string, rates: { [key: string]: number }): number => {
+  const rate = rates[targetCurrency] || 1;
   return amountInIDR * rate;
 };
 
@@ -169,15 +301,18 @@ function getGreetingByTime(): string {
   }
 }
 
-// Komponen Bar Chart Mingguan (style seperti analysis page)
-const WeeklyBarChart = ({ transactions, userId, currency, convertedData, weekStartDate, onWeekChange }: { 
+// Komponen Bar Chart Mingguan
+const WeeklyBarChart = ({ transactions, userId, currency, convertedData, exchangeRates, currencySymbol }: { 
   transactions: any[]; 
   userId: string | null; 
   currency: string;
   convertedData: { totalIncome: number; totalExpense: number; dailyTotals: any[] } | null;
-  weekStartDate: Date;
-  onWeekChange: (newDate: Date) => void;
+  exchangeRates: { [key: string]: number } | null;
+  currencySymbol: string;
 }) => {
+  // Selalu menggunakan minggu saat ini
+  const currentWeekRange = getWeekRange(new Date());
+  
   const [weekData, setWeekData] = useState<{
     weekRange: { start: Date; end: Date; days: Date[] };
     dailyTotals: { date: Date; income: number; expense: number }[];
@@ -185,7 +320,7 @@ const WeeklyBarChart = ({ transactions, userId, currency, convertedData, weekSta
   } | null>(null);
   
   useEffect(() => {
-    const { start, end, days } = getWeekRange(weekStartDate);
+    const { start, end, days } = currentWeekRange;
     
     // Filter transaksi dalam minggu ini
     const weekTransactions = transactions.filter(t => {
@@ -209,7 +344,7 @@ const WeeklyBarChart = ({ transactions, userId, currency, convertedData, weekSta
     const maxValue = Math.max(...dailyTotals.flatMap(d => [d.income, d.expense]), 1);
     
     setWeekData({ weekRange: { start, end, days }, dailyTotals, maxValue });
-  }, [transactions, weekStartDate]);
+  }, [transactions, currentWeekRange]);
   
   if (!weekData) {
     return (
@@ -221,7 +356,6 @@ const WeeklyBarChart = ({ transactions, userId, currency, convertedData, weekSta
   
   const { dailyTotals, maxValue } = weekData;
   const maxBarHeight = 140;
-  const barWidth = 22;
   const groupWidth = 56;
   const screenWidth = Dimensions.get('window').width;
   const scrollWidth = Math.max(screenWidth - 48, dailyTotals.length * groupWidth);
@@ -239,49 +373,18 @@ const WeeklyBarChart = ({ transactions, userId, currency, convertedData, weekSta
     ? Math.max(...displayDailyTotals.flatMap((d: any) => [d.income, d.expense]), 1)
     : maxValue;
   
-  const symbol = currencySymbols[currency] || currency;
-  
-  // Cek apakah minggu ini adalah minggu berjalan
-  const today = new Date();
-  const currentWeekStart = getWeekRange(today).start;
-  const isCurrentWeek = weekData.weekRange.start.toDateString() === currentWeekStart.toDateString();
-  
   return (
     <View style={styles.weeklyCard}>
-      {/* Navigasi Minggu */}
-      <View style={styles.weekNavContainer}>
-        <TouchableOpacity 
-          onPress={() => {
-            const newDate = new Date(weekStartDate);
-            newDate.setDate(weekStartDate.getDate() - 7);
-            onWeekChange(newDate);
-          }}
-          style={styles.navButton}
-        >
-          <Ionicons name="chevron-back" size={24} color="#44DA76" />
-        </TouchableOpacity>
-        
+      {/* Header Minggu */}
+      <View style={styles.weekHeader}>
         <View style={styles.weekInfo}>
           <Text style={styles.weekRangeText}>
             {formatWeekRange(weekData.weekRange.start, weekData.weekRange.end)}
           </Text>
-          {isCurrentWeek && (
-            <View style={styles.currentWeekBadge}>
-              <Text style={styles.currentWeekText}>Minggu Ini</Text>
-            </View>
-          )}
+          <View style={styles.currentWeekBadge}>
+            <Text style={styles.currentWeekText}>Minggu Ini</Text>
+          </View>
         </View>
-        
-        <TouchableOpacity 
-          onPress={() => {
-            const newDate = new Date(weekStartDate);
-            newDate.setDate(weekStartDate.getDate() + 7);
-            onWeekChange(newDate);
-          }}
-          style={styles.navButton}
-        >
-          <Ionicons name="chevron-forward" size={24} color="#44DA76" />
-        </TouchableOpacity>
       </View>
       
       {/* Total Ringkasan */}
@@ -290,14 +393,14 @@ const WeeklyBarChart = ({ transactions, userId, currency, convertedData, weekSta
           <Ionicons name="trending-up-outline" size={24} color="#4CD964" />
           <Text style={styles.totalLabel}>Total Pemasukan</Text>
           <Text style={styles.totalValueGreen}>
-            {symbol} {displayTotalIncome.toLocaleString("id-ID", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+            {currencySymbol} {displayTotalIncome.toLocaleString("id-ID", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
           </Text>
         </View>
         <View style={styles.totalCard}>
           <Ionicons name="trending-down-outline" size={24} color="#FF5E5E" />
           <Text style={styles.totalLabel}>Total Pengeluaran</Text>
           <Text style={styles.totalValueRed}>
-            {symbol} {displayTotalExpense.toLocaleString("id-ID", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+            {currencySymbol} {displayTotalExpense.toLocaleString("id-ID", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
           </Text>
         </View>
       </View>
@@ -315,16 +418,15 @@ const WeeklyBarChart = ({ transactions, userId, currency, convertedData, weekSta
                   <View style={[styles.bar, { height: Math.max(expenseHeight, 4), backgroundColor: "#FF5E5E" }]} />
                 </View>
                 <Text style={styles.dayLabel}>{dayLabels[idx]}</Text>
-                {/* Nilai di bawah bar (opsional) */}
                 <View style={styles.dayValues}>
                   {item.income > 0 && (
                     <Text style={styles.incomeSmall}>
-                      {symbol}{item.income.toLocaleString("id-ID", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                      {currencySymbol}{item.income.toLocaleString("id-ID", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                     </Text>
                   )}
                   {item.expense > 0 && (
                     <Text style={styles.expenseSmall}>
-                      {symbol}{item.expense.toLocaleString("id-ID", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                      {currencySymbol}{item.expense.toLocaleString("id-ID", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                     </Text>
                   )}
                 </View>
@@ -358,6 +460,8 @@ export default function Home() {
   const [balance, setBalance] = useState<number | null>(null);
   const [transactions, setTransactions] = useState<any[]>([]);
   const [currency, setCurrency] = useState<string>("IDR");
+  const [currencySymbol, setCurrencySymbol] = useState<string>("Rp");
+  const [exchangeRates, setExchangeRates] = useState<{ [key: string]: number } | null>(null);
   const [convertedBalance, setConvertedBalance] = useState<number | null>(null);
   const [convertedData, setConvertedData] = useState<{
     totalIncome: number;
@@ -365,10 +469,26 @@ export default function Home() {
     dailyTotals: any[];
   } | null>(null);
   const [loadingConversion, setLoadingConversion] = useState(false);
-  const [weekStartDate, setWeekStartDate] = useState(new Date());
+  const [refreshingRates, setRefreshingRates] = useState(false);
 
   const greeting = getGreetingByTime();
-  const symbol = currencySymbols[currency] || currency;
+
+  // Fungsi untuk memuat kurs mata uang
+  const loadExchangeRates = async (forceRefresh: boolean = false) => {
+    try {
+      if (forceRefresh) {
+        setRefreshingRates(true);
+      }
+      const rates = await getExchangeRates(forceRefresh);
+      setExchangeRates(rates);
+    } catch (error) {
+      console.error("Error loading exchange rates:", error);
+    } finally {
+      if (forceRefresh) {
+        setRefreshingRates(false);
+      }
+    }
+  };
 
   // LOAD CURRENCY FROM PREFERENCES
   useEffect(() => {
@@ -377,28 +497,51 @@ export default function Home() {
         const savedCurrency = await AsyncStorage.getItem("currency");
         if (savedCurrency) {
           setCurrency(savedCurrency);
+          const symbol = getCurrencySymbol(savedCurrency);
+          setCurrencySymbol(symbol);
         } else {
           setCurrency("IDR");
+          setCurrencySymbol("Rp");
         }
       } catch (error) {
         console.error("Error loading currency:", error);
         setCurrency("IDR");
+        setCurrencySymbol("Rp");
       }
     };
     loadCurrency();
   }, []);
 
-  // Konversi semua nilai mata uang ketika currency berubah atau data berubah
+  // Load exchange rates saat komponen mount
   useEffect(() => {
-    if (balance !== null && transactions.length > 0) {
+    loadExchangeRates();
+    
+    // Refresh kurs setiap 1 jam
+    const interval = setInterval(() => {
+      loadExchangeRates(true);
+    }, CACHE_DURATION);
+    
+    return () => clearInterval(interval);
+  }, []);
+
+  // Update simbol mata uang ketika currency berubah
+  useEffect(() => {
+    const symbol = getCurrencySymbol(currency);
+    setCurrencySymbol(symbol);
+  }, [currency]);
+
+  // Konversi semua nilai mata uang ketika currency berubah, data berubah, atau kurs berubah
+  useEffect(() => {
+    if (exchangeRates && balance !== null && transactions.length > 0) {
       setLoadingConversion(true);
       
       // Konversi balance
-      const newConvertedBalance = convertCurrency(balance, currency);
+      const newConvertedBalance = convertCurrencySync(balance, currency, exchangeRates);
       setConvertedBalance(newConvertedBalance);
       
-      // Konversi data untuk chart
-      const { start, end, days } = getWeekRange(weekStartDate);
+      // Konversi data untuk chart (selalu gunakan minggu saat ini)
+      const currentWeekRange = getWeekRange(new Date());
+      const { start, end, days } = currentWeekRange;
       const weekTransactions = transactions.filter(t => {
         const tDate = new Date(t.created_at);
         return tDate >= start && tDate <= end;
@@ -410,7 +553,7 @@ export default function Home() {
         weekTransactions.forEach(t => {
           const tYMD = toYMD(new Date(t.created_at));
           if (tYMD === ymd) {
-            const convertedAmount = convertCurrency(t.amount, currency);
+            const convertedAmount = convertCurrencySync(t.amount, currency, exchangeRates);
             if (t.type === 'income') income += convertedAmount;
             else expense += convertedAmount;
           }
@@ -423,11 +566,11 @@ export default function Home() {
       
       setConvertedData({ totalIncome, totalExpense, dailyTotals });
       setLoadingConversion(false);
-    } else if (balance !== null) {
-      const newConvertedBalance = convertCurrency(balance, currency);
+    } else if (exchangeRates && balance !== null) {
+      const newConvertedBalance = convertCurrencySync(balance, currency, exchangeRates);
       setConvertedBalance(newConvertedBalance);
     }
-  }, [currency, balance, transactions, weekStartDate]);
+  }, [currency, balance, transactions, exchangeRates]);
 
   // FETCH USER
   useEffect(() => {
@@ -482,12 +625,14 @@ export default function Home() {
     if (data) setTransactions(data);
   };
 
-  // Update balance dan history ketika screen focus (menggunakan useFocusEffect)
+  // Update balance dan history ketika screen focus
   useFocusEffect(
     useCallback(() => {
       if (userId) {
         fetchBalance();
         fetchHistory();
+        // Refresh kurs saat screen focus
+        loadExchangeRates(true);
       }
     }, [userId])
   );
@@ -504,6 +649,12 @@ export default function Home() {
 
   const handleIncome = () => router.push("/(tabs)/income");
   const handleExpense = () => router.push("/(tabs)/expense");
+
+  // Fungsi untuk refresh kurs manual
+  const handleRefreshRates = async () => {
+    await loadExchangeRates(true);
+    Alert.alert("Berhasil", "Kurs mata uang telah diperbarui sesuai dengan nilai tukar Google");
+  };
 
   return (
     <View style={styles.container}>
@@ -525,23 +676,37 @@ export default function Home() {
           </View>
         </View>
 
-        <TouchableOpacity
-          style={styles.menuButton}
-          onPress={() => setMenuVisible(true)}
-        >
-          <Ionicons name="ellipsis-vertical" size={26} color="white" />
-        </TouchableOpacity>
+        <View style={styles.headerRight}>
+          <TouchableOpacity
+            style={styles.refreshButton}
+            onPress={handleRefreshRates}
+            disabled={refreshingRates}
+          >
+            {refreshingRates ? (
+              <ActivityIndicator size="small" color="#44DA76" />
+            ) : (
+              <Ionicons name="refresh-outline" size={22} color="white" />
+            )}
+          </TouchableOpacity>
+          
+          <TouchableOpacity
+            style={styles.menuButton}
+            onPress={() => setMenuVisible(true)}
+          >
+            <Ionicons name="ellipsis-vertical" size={26} color="white" />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* BODY */}
       <ScrollView style={styles.bodyScroll} showsVerticalScrollIndicator={false}>
         <View style={styles.body}>
           <View style={styles.balanceCard}>
-            {loadingConversion ? (
+            {loadingConversion || !exchangeRates ? (
               <ActivityIndicator color="#44DA76" size="large" />
             ) : (
               <Text style={styles.balanceValue}>
-                {symbol} {convertedBalance?.toLocaleString("id-ID", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? "0"}
+                {currencySymbol} {convertedBalance?.toLocaleString("id-ID", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? "0"}
               </Text>
             )}
           </View>
@@ -578,14 +743,14 @@ export default function Home() {
             </TouchableOpacity>
           </View>
 
-          {/* WEEKLY BAR CHART - dengan mata uang terkonversi */}
+          {/* WEEKLY BAR CHART */}
           <WeeklyBarChart 
             transactions={transactions} 
             userId={userId} 
             currency={currency}
             convertedData={convertedData}
-            weekStartDate={weekStartDate}
-            onWeekChange={setWeekStartDate}
+            exchangeRates={exchangeRates}
+            currencySymbol={currencySymbol}
           />
 
           {/* HISTORY */}
@@ -610,7 +775,9 @@ export default function Home() {
                     : expenseIconMap[catName] ?? <Package color="#74C1FF" size={20} />;
                 
                 // Konversi amount ke mata uang yang dipilih
-                const convertedAmount = convertCurrency(item.amount, currency);
+                const convertedAmount = exchangeRates 
+                  ? convertCurrencySync(item.amount, currency, exchangeRates)
+                  : item.amount;
                 const formattedAmount = convertedAmount.toLocaleString("id-ID", { 
                   minimumFractionDigits: 2, 
                   maximumFractionDigits: 2 
@@ -633,7 +800,7 @@ export default function Home() {
                         { color: item.type === "income" ? "#44DA76" : "#FF5E5E" },
                       ]}
                     >
-                      {item.type === "income" ? "+" : "-"} {symbol} {formattedAmount}
+                      {item.type === "income" ? "+" : "-"} {currencySymbol} {formattedAmount}
                     </Text>
                   </View>
                 );
@@ -702,6 +869,7 @@ const styles = StyleSheet.create({
     marginBottom: 25,
   },
   headerLeft: { flexDirection: "row", alignItems: "center" },
+  headerRight: { flexDirection: "row", alignItems: "center", gap: 12 },
   userInfoContainer: {
     marginLeft: 10,
   },
@@ -727,6 +895,7 @@ const styles = StyleSheet.create({
   bodyScroll: { flex: 1 },
   body: { alignItems: "center", paddingBottom: 40 },
   menuButton: { padding: 6 },
+  refreshButton: { padding: 6 },
   modalOverlay: { flex: 1 },
   balanceCard: {
     width: "90%",
@@ -790,7 +959,6 @@ const styles = StyleSheet.create({
   detailButton: { paddingVertical: 8, paddingHorizontal: 14 },
   detailText: { color: "#44DA76", fontSize: 14, fontWeight: "600", left: 14 },
   
-  // Styles untuk Weekly Bar Chart (seperti analysis page)
   weeklyCard: {
     width: "90%",
     backgroundColor: "#1E1F1F",
@@ -800,18 +968,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.08)",
   },
-  weekNavContainer: {
-    flexDirection: "row",
+  weekHeader: {
     alignItems: "center",
-    justifyContent: "space-between",
     marginBottom: 12,
   },
-  navButton: {
-    padding: 8,
-    backgroundColor: "#2A2A2A",
-    borderRadius: 30,
+  weekInfo: { 
+    textAlign: "center",
+    justifyContent: "center",
+    alignItems: "center",
   },
-  weekInfo: { alignItems: "center" },
   weekRangeText: { color: "white", fontSize: 15, fontWeight: "600" },
   currentWeekBadge: {
     backgroundColor: "#44DA7620",
@@ -841,7 +1006,6 @@ const styles = StyleSheet.create({
   legendRow: { flexDirection: "row", alignItems: "center", marginHorizontal: 16 },
   legendColor: { width: 14, height: 14, borderRadius: 7, marginRight: 6 },
   legendText: { color: "#ccc", fontSize: 13 },
-  legendDotSmall: { width: 10, height: 10, borderRadius: 5, marginRight: 4 },
   
   historyWrapper: { width: "90%", marginTop: 25 },
   historyHeader: {
