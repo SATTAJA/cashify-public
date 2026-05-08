@@ -1,5 +1,5 @@
 // =======================
-// HOME PAGE FINAL – WEEKLY BAR CHART (REPLACES DONUT)
+// HOME PAGE FINAL – WEEKLY BAR CHART WITH CURRENCY CONVERSION
 // =======================
 
 import React, { useState, useEffect } from "react";
@@ -14,11 +14,13 @@ import {
   Platform,
   ScrollView,
   Dimensions,
+  ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../../lib/supabase";
+import { useCallback } from "react";
 
 // ==============================
 // IKON INCOME
@@ -67,6 +69,51 @@ type UserInfo = {
   username: string;
   avatar_url: string | null;
 } | null;
+
+// ==============================
+// FUNGSI KONVERSI MATA UANG
+// ==============================
+// Kurs mata uang terhadap IDR (contoh, bisa diganti dengan API real-time)
+const exchangeRates: { [key: string]: number } = {
+  IDR: 1,
+  USD: 0.000064, // 1 IDR = 0.000064 USD
+  SGD: 0.000086, // 1 IDR = 0.000086 SGD
+  MYR: 0.00030,  // 1 IDR = 0.00030 MYR
+  EUR: 0.000059, // 1 IDR = 0.000059 EUR
+  GBP: 0.000051, // 1 IDR = 0.000051 GBP
+  JPY: 0.0096,   // 1 IDR = 0.0096 JPY
+  CNY: 0.00046,  // 1 IDR = 0.00046 CNY
+  INR: 0.0053,   // 1 IDR = 0.0053 INR
+  AUD: 0.000097, // 1 IDR = 0.000097 AUD
+  KRW: 0.087,    // 1 IDR = 0.087 KRW
+  THB: 0.0023,   // 1 IDR = 0.0023 THB
+  VND: 1.63,     // 1 IDR = 1.63 VND
+  PHP: 0.0036,   // 1 IDR = 0.0036 PHP
+};
+
+// Simbol mata uang
+const currencySymbols: { [key: string]: string } = {
+  IDR: "Rp",
+  USD: "$",
+  SGD: "S$",
+  MYR: "RM",
+  EUR: "€",
+  GBP: "£",
+  JPY: "¥",
+  CNY: "¥",
+  INR: "₹",
+  AUD: "A$",
+  KRW: "₩",
+  THB: "฿",
+  VND: "₫",
+  PHP: "₱",
+};
+
+// Fungsi konversi nilai dari IDR ke mata uang target
+const convertCurrency = (amountInIDR: number, targetCurrency: string): number => {
+  const rate = exchangeRates[targetCurrency] || 1;
+  return amountInIDR * rate;
+};
 
 // Helper: format tanggal ke "MMM DD" (contoh: Jun 23)
 function formatDateShort(date: Date): string {
@@ -117,8 +164,13 @@ function getGreetingByTime(): string {
   }
 }
 
-// Komponen Bar Chart Mingguan
-const WeeklyBarChart = ({ transactions, userId }: { transactions: any[]; userId: string | null }) => {
+// Komponen Bar Chart Mingguan dengan konversi mata uang
+const WeeklyBarChart = ({ transactions, userId, currency, convertedData }: { 
+  transactions: any[]; 
+  userId: string | null; 
+  currency: string;
+  convertedData: { totalIncome: number; totalExpense: number; dailyTotals: any[] } | null;
+}) => {
   const [weekData, setWeekData] = useState<{
     weekRange: { start: Date; end: Date; days: Date[] };
     dailyTotals: { date: Date; income: number; expense: number }[];
@@ -128,7 +180,18 @@ const WeeklyBarChart = ({ transactions, userId }: { transactions: any[]; userId:
   } | null>(null);
   
   useEffect(() => {
-    if (!userId || transactions.length === 0) return;
+    if (!userId || transactions.length === 0) {
+      // Tampilkan data kosong tapi dengan struktur yang benar
+      const { start, end, days } = getWeekRange(new Date());
+      setWeekData({
+        weekRange: { start, end, days },
+        dailyTotals: days.map(day => ({ date: day, income: 0, expense: 0 })),
+        totalIncome: 0,
+        totalExpense: 0,
+        maxValue: 1,
+      });
+      return;
+    }
     
     const { start, end, days } = getWeekRange(new Date());
     // Filter transaksi dalam minggu ini
@@ -157,20 +220,35 @@ const WeeklyBarChart = ({ transactions, userId }: { transactions: any[]; userId:
     setWeekData({ weekRange: { start, end, days }, dailyTotals, totalIncome, totalExpense, maxValue });
   }, [transactions, userId]);
   
-  if (!weekData) return null;
+  if (!weekData) {
+    return (
+      <View style={styles.weeklyCard}>
+        <ActivityIndicator color="#44DA76" />
+      </View>
+    );
+  }
   
   const { dailyTotals, totalIncome, totalExpense, maxValue } = weekData;
-  const maxBarHeight = 140; // tinggi maks bar dalam px
-  const barWidth = 22;
-  const groupWidth = 56; // lebar per hari (2 bar + spacing)
+  const maxBarHeight = 140;
+  const groupWidth = 56;
   const screenWidth = Dimensions.get('window').width;
   const scrollWidth = Math.max(screenWidth - 32, dailyTotals.length * groupWidth);
-  
   const dayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  
+  // Gunakan data yang sudah dikonversi jika ada
+  const displayTotalIncome = convertedData?.totalIncome ?? totalIncome;
+  const displayTotalExpense = convertedData?.totalExpense ?? totalExpense;
+  const displayDailyTotals = convertedData?.dailyTotals ?? dailyTotals;
+  
+  // Hitung max value untuk chart berdasarkan data yang dikonversi
+  const displayMaxValue = convertedData 
+    ? Math.max(...displayDailyTotals.flatMap((d: any) => [d.income, d.expense]), 1)
+    : maxValue;
+  
+  const symbol = currencySymbols[currency] || currency;
   
   return (
     <View style={styles.weeklyCard}>
-      {/* Header minggu & total */}
       <View style={styles.weekHeader}>
         <Text style={styles.weekRangeText}>
           {formatDateShort(weekData.weekRange.start)} - {formatDateShort(weekData.weekRange.end)}
@@ -179,28 +257,29 @@ const WeeklyBarChart = ({ transactions, userId }: { transactions: any[]; userId:
           <View style={styles.totalItem}>
             <View style={[styles.legendDotSmall, { backgroundColor: "#44DA76" }]} />
             <Text style={styles.totalLabel}>Income</Text>
-            <Text style={styles.totalValueGreen}>Rp {totalIncome.toLocaleString("id-ID")}</Text>
+            <Text style={styles.totalValueGreen}>
+              {symbol} {displayTotalIncome.toLocaleString("id-ID", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </Text>
           </View>
           <View style={styles.totalItem}>
             <View style={[styles.legendDotSmall, { backgroundColor: "#FF5E5E" }]} />
             <Text style={styles.totalLabel}>Expense</Text>
-            <Text style={styles.totalValueRed}>Rp {totalExpense.toLocaleString("id-ID")}</Text>
+            <Text style={styles.totalValueRed}>
+              {symbol} {displayTotalExpense.toLocaleString("id-ID", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </Text>
           </View>
         </View>
       </View>
       
-      {/* Bar Chart */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chartScroll}>
         <View style={{ width: scrollWidth, flexDirection: "row", justifyContent: "space-around", alignItems: "flex-end", paddingVertical: 12 }}>
-          {dailyTotals.map((item, idx) => {
-            const incomeHeight = maxValue === 0 ? 0 : (item.income / maxValue) * maxBarHeight;
-            const expenseHeight = maxValue === 0 ? 0 : (item.expense / maxValue) * maxBarHeight;
+          {displayDailyTotals.map((item: any, idx: number) => {
+            const incomeHeight = displayMaxValue === 0 ? 0 : (item.income / displayMaxValue) * maxBarHeight;
+            const expenseHeight = displayMaxValue === 0 ? 0 : (item.expense / displayMaxValue) * maxBarHeight;
             return (
               <View key={idx} style={styles.barGroup}>
                 <View style={styles.barsContainer}>
-                  {/* Bar Income (hijau) */}
                   <View style={[styles.bar, { height: Math.max(incomeHeight, 4), backgroundColor: "#44DA76", marginBottom: 4 }]} />
-                  {/* Bar Expense (merah) */}
                   <View style={[styles.bar, { height: Math.max(expenseHeight, 4), backgroundColor: "#FF5E5E" }]} />
                 </View>
                 <Text style={styles.dayLabel}>{dayLabels[idx]}</Text>
@@ -210,7 +289,6 @@ const WeeklyBarChart = ({ transactions, userId }: { transactions: any[]; userId:
         </View>
       </ScrollView>
       
-      {/* Legend */}
       <View style={styles.legendContainer}>
         <View style={styles.legendRow}>
           <View style={[styles.legendColor, { backgroundColor: "#44DA76" }]} />
@@ -233,9 +311,76 @@ export default function Home() {
 
   const [balance, setBalance] = useState<number | null>(null);
   const [transactions, setTransactions] = useState<any[]>([]);
+  const [currency, setCurrency] = useState<string>("IDR");
+  const [convertedBalance, setConvertedBalance] = useState<number | null>(null);
+  const [convertedData, setConvertedData] = useState<{
+    totalIncome: number;
+    totalExpense: number;
+    dailyTotals: any[];
+  } | null>(null);
+  const [loadingConversion, setLoadingConversion] = useState(false);
 
-  // Menyimpan sapaan yang sudah ditentukan (akan update setiap render)
   const greeting = getGreetingByTime();
+  const symbol = currencySymbols[currency] || currency;
+
+  // LOAD CURRENCY FROM PREFERENCES
+  useEffect(() => {
+    const loadCurrency = async () => {
+      try {
+        const savedCurrency = await AsyncStorage.getItem("currency");
+        if (savedCurrency) {
+          setCurrency(savedCurrency);
+        } else {
+          setCurrency("IDR");
+        }
+      } catch (error) {
+        console.error("Error loading currency:", error);
+        setCurrency("IDR");
+      }
+    };
+    loadCurrency();
+  }, []);
+
+  // Konversi semua nilai mata uang ketika currency berubah atau data berubah
+  useEffect(() => {
+    if (balance !== null && transactions.length > 0) {
+      setLoadingConversion(true);
+      
+      // Konversi balance
+      const newConvertedBalance = convertCurrency(balance, currency);
+      setConvertedBalance(newConvertedBalance);
+      
+      // Konversi data untuk chart
+      const { start, end, days } = getWeekRange(new Date());
+      const weekTransactions = transactions.filter(t => {
+        const tDate = new Date(t.created_at);
+        return tDate >= start && tDate <= end;
+      });
+      
+      const dailyTotals = days.map(day => {
+        const ymd = toYMD(day);
+        let income = 0, expense = 0;
+        weekTransactions.forEach(t => {
+          const tYMD = toYMD(new Date(t.created_at));
+          if (tYMD === ymd) {
+            const convertedAmount = convertCurrency(t.amount, currency);
+            if (t.type === 'income') income += convertedAmount;
+            else expense += convertedAmount;
+          }
+        });
+        return { date: day, income, expense };
+      });
+      
+      const totalIncome = dailyTotals.reduce((sum, d) => sum + d.income, 0);
+      const totalExpense = dailyTotals.reduce((sum, d) => sum + d.expense, 0);
+      
+      setConvertedData({ totalIncome, totalExpense, dailyTotals });
+      setLoadingConversion(false);
+    } else if (balance !== null) {
+      const newConvertedBalance = convertCurrency(balance, currency);
+      setConvertedBalance(newConvertedBalance);
+    }
+  }, [currency, balance, transactions]);
 
   // FETCH USER
   useEffect(() => {
@@ -290,11 +435,15 @@ export default function Home() {
     if (data) setTransactions(data);
   };
 
-  useEffect(() => {
-    if (!userId) return;
-    fetchBalance();
-    fetchHistory();
-  }, [userId]);
+  // Update balance dan history ketika screen focus (menggunakan useFocusEffect)
+  useFocusEffect(
+    useCallback(() => {
+      if (userId) {
+        fetchBalance();
+        fetchHistory();
+      }
+    }, [userId])
+  );
 
   const handleLogout = async () => {
     try {
@@ -337,13 +486,17 @@ export default function Home() {
         </TouchableOpacity>
       </View>
 
-      {/* BODY dengan ScrollView agar konten panjang bisa di-scroll */}
+      {/* BODY */}
       <ScrollView style={styles.bodyScroll} showsVerticalScrollIndicator={false}>
         <View style={styles.body}>
           <View style={styles.balanceCard}>
-            <Text style={styles.balanceValue}>
-              Rp {balance?.toLocaleString("id-ID") ?? "0"}
-            </Text>
+            {loadingConversion ? (
+              <ActivityIndicator color="#44DA76" size="large" />
+            ) : (
+              <Text style={styles.balanceValue}>
+                {symbol} {convertedBalance?.toLocaleString("id-ID", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? "0"}
+              </Text>
+            )}
           </View>
 
           <Image
@@ -378,8 +531,13 @@ export default function Home() {
             </TouchableOpacity>
           </View>
 
-          {/* WEEKLY BAR CHART - menggantikan donut */}
-          <WeeklyBarChart transactions={transactions} userId={userId} />
+          {/* WEEKLY BAR CHART - dengan mata uang terkonversi */}
+          <WeeklyBarChart 
+            transactions={transactions} 
+            userId={userId} 
+            currency={currency}
+            convertedData={convertedData}
+          />
 
           {/* HISTORY */}
           <View style={styles.historyWrapper}>
@@ -401,6 +559,13 @@ export default function Home() {
                   item.type === "income"
                     ? incomeIconMap[catName] ?? <Wallet color="#74C1FF" size={22} />
                     : expenseIconMap[catName] ?? <Package color="#74C1FF" size={20} />;
+                
+                // Konversi amount ke mata uang yang dipilih
+                const convertedAmount = convertCurrency(item.amount, currency);
+                const formattedAmount = convertedAmount.toLocaleString("id-ID", { 
+                  minimumFractionDigits: 2, 
+                  maximumFractionDigits: 2 
+                });
 
                 return (
                   <View key={item.id} style={styles.historyCard}>
@@ -419,8 +584,7 @@ export default function Home() {
                         { color: item.type === "income" ? "#44DA76" : "#FF5E5E" },
                       ]}
                     >
-                      {item.type === "income" ? "+" : "-"} Rp{" "}
-                      {item.amount.toLocaleString("id-ID")}
+                      {item.type === "income" ? "+" : "-"} {symbol} {formattedAmount}
                     </Text>
                   </View>
                 );
@@ -473,7 +637,7 @@ export default function Home() {
 }
 
 // =========================
-// STYLES (updated with greeting style)
+// STYLES
 // =========================
 const HEADER_TOP_PADDING = Platform.OS === "android" ? 20 : 50;
 
@@ -522,6 +686,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: 45,
     zIndex: 200,
+    alignItems: "center",
   },
   balanceValue: {
     color: "white",
@@ -576,7 +741,6 @@ const styles = StyleSheet.create({
   detailButton: { paddingVertical: 8, paddingHorizontal: 14 },
   detailText: { color: "#44DA76", fontSize: 14, fontWeight: "600", left: 14 },
   
-  // Weekly Bar Chart Styles
   weeklyCard: {
     width: "90%",
     backgroundColor: "#252525",
@@ -680,7 +844,6 @@ const styles = StyleSheet.create({
     marginRight: 4,
   },
   
-  // History Styles
   historyWrapper: { width: "90%", marginTop: 25 },
   historyHeader: {
     width: "100%",

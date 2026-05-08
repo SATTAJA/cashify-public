@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useRef } from "react";
 import {
   View,
   Text,
@@ -6,15 +6,13 @@ import {
   FlatList,
   TouchableOpacity,
   StyleSheet,
+  Animated,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
 import { getAllCurrencies } from "../../constants/currencies";
 import { Ionicons } from "@expo/vector-icons";
-import {
-  SafeAreaProvider,
-  SafeAreaView,
-} from "react-native-safe-area-context";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 
 type Currency = {
   code: string;
@@ -26,6 +24,9 @@ function PreferencesScreen() {
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState("IDR");
 
+  // 🔥 animasi scale
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+
   const currencies = useMemo(() => getAllCurrencies(), []);
 
   const filtered = useMemo(() => {
@@ -36,6 +37,22 @@ function PreferencesScreen() {
         c.country.toLowerCase().includes(search.toLowerCase())
     );
   }, [search, currencies]);
+
+  const handleFocus = () => {
+    Animated.spring(scaleAnim, {
+      toValue: 1.05,
+      useNativeDriver: true,
+      friction: 6,
+    }).start();
+  };
+
+  const handleBlur = () => {
+    Animated.spring(scaleAnim, {
+      toValue: 1,
+      useNativeDriver: true,
+      friction: 6,
+    }).start();
+  };
 
   const handleSave = async () => {
     await AsyncStorage.setItem("currency", selected);
@@ -64,11 +81,18 @@ function PreferencesScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       <Text style={styles.title}>Pilih Mata Uang</Text>
 
-      {/* SEARCH */}
-      <View style={styles.searchBox}>
+      {/* 🔥 SEARCH (ANIMATED) */}
+      <Animated.View
+        style={[
+          styles.searchBox,
+          {
+            transform: [{ scale: scaleAnim }],
+          },
+        ]}
+      >
         <Ionicons name="search-outline" size={20} color="#919191" />
         <TextInput
           placeholder="Cari mata uang..."
@@ -76,8 +100,10 @@ function PreferencesScreen() {
           value={search}
           onChangeText={setSearch}
           style={styles.search}
+          onFocus={handleFocus}
+          onBlur={handleBlur}
         />
-      </View>
+      </Animated.View>
 
       {/* LIST */}
       <FlatList
@@ -92,7 +118,7 @@ function PreferencesScreen() {
       <TouchableOpacity style={styles.button} onPress={handleSave}>
         <Text style={styles.buttonText}>Lanjut</Text>
       </TouchableOpacity>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -120,14 +146,14 @@ const styles = StyleSheet.create({
     fontSize: 26,
     fontWeight: "bold",
     marginVertical: 16,
-    marginTop: 10,
+    marginTop: 60,
     textAlign: "center",
     marginBottom: 25,
   },
 
   searchBox: {
     backgroundColor: CARD,
-    borderRadius: 12,
+    borderRadius: 14,
     paddingHorizontal: 12,
     marginBottom: 20,
     flexDirection: "row",
@@ -136,7 +162,7 @@ const styles = StyleSheet.create({
   },
 
   search: {
-    flex: 1, // 🔥 ini yang bikin seluruh area bisa diklik
+    flex: 1,
     color: "white",
     height: 45,
     marginLeft: 10,
@@ -166,14 +192,14 @@ const styles = StyleSheet.create({
     color: "white",
     fontSize: 14,
     fontWeight: "500",
-    left: 20,
+    left: 25,
   },
 
   country: {
     color: "#888",
     fontSize: 12,
     marginTop: 2,
-    left: 20,
+    left: 25,
   },
 
   code: {

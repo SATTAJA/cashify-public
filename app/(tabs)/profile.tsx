@@ -65,7 +65,7 @@ export default function Profile() {
         )}
       </View>
 
-      {/* Name & Email */}
+      {/* Name & Email */}9
       <Text style={styles.name}>{name}</Text>
       <Text style={styles.email}>{email}</Text>
 
@@ -77,6 +77,8 @@ export default function Profile() {
         <Text style={styles.changePassText}>Ganti kata sandi</Text>
         <Ionicons name="chevron-forward" size={20} color="#44DA76" />
       </TouchableOpacity>
+
+      
 
       {/* Logout */}
       <TouchableOpacity
