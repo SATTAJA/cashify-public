@@ -78,7 +78,13 @@ export default function Profile() {
         <Ionicons name="chevron-forward" size={20} color="#44DA76" />
       </TouchableOpacity>
 
-      
+        <TouchableOpacity
+        style={styles.changePassBtn}
+        onPress={() => router.push("/preferences")}
+        >
+        <Text style={styles.changePassText}>Ganti mata uang</Text>
+        <Ionicons name="chevron-forward" size={20} color="#44DA76" />
+        </TouchableOpacity>
 
       {/* Logout */}
       <TouchableOpacity

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   TextInput,
   ScrollView,
   Alert,
+  ActivityIndicator,
 } from "react-native";
 
 import {
@@ -20,6 +21,8 @@ import {
 
 import { router } from "expo-router";
 import { supabase } from "../../lib/supabase";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { getCurrencySymbol, getAllCurrencies } from "../../constants/currencies";
 
 const PRESET_CATEGORIES = [
   { name: "Gaji", icon: <BriefcaseBusiness color="#74C1FF" size={20} /> },
@@ -29,26 +32,105 @@ const PRESET_CATEGORIES = [
   { name: "Lainnya", icon: <PlusCircle color="#74C1FF" size={20} /> },
 ];
 
-// Format angka: 15000 → 15.000
-const formatIDR = (value: string) => {
+// Format angka dengan mata uang tertentu
+const formatCurrency = (value: string, currencyCode: string = "IDR") => {
   const numeric = value.replace(/\D/g, "");
-  return numeric.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  if (currencyCode === "IDR") {
+    return numeric.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  }
+  // Untuk mata uang lain, gunakan format internasional dengan koma
+  return numeric.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+};
+
+// Fungsi untuk konversi kurs (IDR ke mata uang lain)
+const convertFromIDR = (amountInIDR: number, targetCurrency: string, rates: { [key: string]: number }): number => {
+  const rate = rates[targetCurrency] || 1;
+  return amountInIDR * rate;
 };
 
 const AddIncome = () => {
   const [rawAmount, setRawAmount] = useState("");
   const [displayAmount, setDisplayAmount] = useState("");
-
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [note, setNote] = useState("");
   const [loading, setLoading] = useState(false);
+  
+  // State untuk mata uang
+  const [currency, setCurrency] = useState<string>("IDR");
+  const [currencySymbol, setCurrencySymbol] = useState<string>("Rp");
+  const [exchangeRates, setExchangeRates] = useState<{ [key: string]: number } | null>(null);
+  const [loadingCurrency, setLoadingCurrency] = useState(true);
+
+  // Load currency dari preferences
+  useEffect(() => {
+    const loadCurrency = async () => {
+      try {
+        const savedCurrency = await AsyncStorage.getItem("currency");
+        if (savedCurrency) {
+          setCurrency(savedCurrency);
+          const symbol = getCurrencySymbol(savedCurrency);
+          setCurrencySymbol(symbol);
+        } else {
+          setCurrency("IDR");
+          setCurrencySymbol("Rp");
+        }
+      } catch (error) {
+        console.error("Error loading currency:", error);
+        setCurrency("IDR");
+        setCurrencySymbol("Rp");
+      }
+    };
+    loadCurrency();
+  }, []);
+
+  // Load exchange rates
+  useEffect(() => {
+    const loadExchangeRates = async () => {
+      try {
+        // Menggunakan Currency API yang sama dengan Home page
+        const response = await fetch(`https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/idr.json`);
+        
+        if (response.ok) {
+          const data = await response.json();
+          if (data && data.idr) {
+            const rates: { [key: string]: number } = { IDR: 1 };
+            
+            // Dapatkan semua mata uang dari preferences
+            const supportedCurrencies = getAllCurrencies().map(c => c.code);
+            
+            supportedCurrencies.forEach(currencyCode => {
+              if (currencyCode === "IDR") {
+                rates[currencyCode] = 1;
+              } else {
+                const lowerCurrency = currencyCode.toLowerCase();
+                if (data.idr[lowerCurrency]) {
+                  rates[currencyCode] = data.idr[lowerCurrency];
+                } else {
+                  rates[currencyCode] = 1;
+                }
+              }
+            });
+            
+            setExchangeRates(rates);
+          }
+        }
+      } catch (error) {
+        console.error("Error loading exchange rates:", error);
+      } finally {
+        setLoadingCurrency(false);
+      }
+    };
+    
+    loadExchangeRates();
+  }, []);
 
   const handleBack = () => router.replace("/home");
 
   const handleAmountChange = (text: string) => {
     const clean = text.replace(/\D/g, ""); // hanya angka
     setRawAmount(clean);
-    setDisplayAmount(formatIDR(clean));
+    const formatted = formatCurrency(clean, currency);
+    setDisplayAmount(formatted);
   };
 
   // Check kategori sudah ada di DB
@@ -94,6 +176,19 @@ const AddIncome = () => {
 
     setLoading(true);
 
+    // Konversi amount ke IDR jika mata uang bukan IDR
+    let amountInIDR = parseFloat(rawAmount);
+    
+    if (currency !== "IDR" && exchangeRates) {
+      // Jika mata uang yang dipilih bukan IDR, konversi ke IDR untuk disimpan di database
+      // Rumus: amount dalam mata uang X = amount * (rate dari IDR ke X)
+      // Maka amount dalam IDR = amount / rate
+      const rate = exchangeRates[currency];
+      if (rate && rate > 0) {
+        amountInIDR = amountInIDR / rate;
+      }
+    }
+
     const categoryId = await ensureCategoryExists(selectedCategory);
     if (!categoryId) {
       setLoading(false);
@@ -106,7 +201,7 @@ const AddIncome = () => {
     const { error } = await supabase.from("transactions").insert([
       {
         user_id: userId,
-        amount: parseFloat(rawAmount),
+        amount: Math.round(amountInIDR), // Simpan dalam IDR (tanpa desimal)
         category_id: categoryId,
         type: "income",
         note,
@@ -117,12 +212,23 @@ const AddIncome = () => {
 
     if (error) {
       Alert.alert("Error", "Gagal menambahkan pemasukan.");
+      console.error(error);
       return;
     }
 
     Alert.alert("Berhasil", "Pemasukan berhasil ditambahkan!");
     router.replace("/home");
   };
+
+  // Tampilkan loading saat mengambil kurs
+  if (loadingCurrency) {
+    return (
+      <View style={[styles.container, styles.loadingContainer]}>
+        <ActivityIndicator size="large" color="#44DA76" />
+        <Text style={styles.loadingText}>Memuat data mata uang...</Text>
+      </View>
+    );
+  }
 
   return (
     <ScrollView style={styles.container}>
@@ -137,12 +243,12 @@ const AddIncome = () => {
 
       {/* Nominal */}
       <View style={styles.nominalWrapper}>
-        <Text style={styles.rp}>Rp</Text>
+        <Text style={styles.currencySymbol}>{currencySymbol}</Text>
 
         <TextInput
           style={styles.amountInput}
           keyboardType="number-pad"
-          placeholder="...."
+          placeholder="0"
           placeholderTextColor="#555"
           value={displayAmount}
           onChangeText={handleAmountChange}
@@ -150,7 +256,9 @@ const AddIncome = () => {
         />
       </View>
 
-      <Text style={styles.labelInfo}>Isi nominal pemasukan</Text>
+      <Text style={styles.labelInfo}>
+        Isi nominal pemasukan
+      </Text>
 
       {/* Catatan */}
       <Text style={styles.label}>Catatan (Opsional)</Text>
@@ -205,6 +313,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
 
+  loadingContainer: {
+    justifyContent: "center",
+    alignItems: "center",
+  },
+
+  loadingText: {
+    color: "white",
+    marginTop: 20,
+    fontSize: 16,
+  },
+
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -230,7 +349,7 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
 
-  rp: {
+  currencySymbol: {
     color: "gray",
     fontSize: 36,
     marginRight: 10,
