@@ -121,6 +121,11 @@ function formatDateShort(date: Date): string {
   return `${months[date.getMonth()]} ${date.getDate()}`;
 }
 
+// Helper: format "Jun 23 - Jun 29"
+function formatWeekRange(start: Date, end: Date): string {
+  return `${formatDateShort(start)} - ${formatDateShort(end)}`;
+}
+
 // Helper: mendapatkan range minggu (Minggu - Sabtu)
 function getWeekRange(date: Date = new Date()): { start: Date; end: Date; days: Date[] } {
   const current = new Date(date);
@@ -164,36 +169,24 @@ function getGreetingByTime(): string {
   }
 }
 
-// Komponen Bar Chart Mingguan dengan konversi mata uang
-const WeeklyBarChart = ({ transactions, userId, currency, convertedData }: { 
+// Komponen Bar Chart Mingguan (style seperti analysis page)
+const WeeklyBarChart = ({ transactions, userId, currency, convertedData, weekStartDate, onWeekChange }: { 
   transactions: any[]; 
   userId: string | null; 
   currency: string;
   convertedData: { totalIncome: number; totalExpense: number; dailyTotals: any[] } | null;
+  weekStartDate: Date;
+  onWeekChange: (newDate: Date) => void;
 }) => {
   const [weekData, setWeekData] = useState<{
     weekRange: { start: Date; end: Date; days: Date[] };
     dailyTotals: { date: Date; income: number; expense: number }[];
-    totalIncome: number;
-    totalExpense: number;
     maxValue: number;
   } | null>(null);
   
   useEffect(() => {
-    if (!userId || transactions.length === 0) {
-      // Tampilkan data kosong tapi dengan struktur yang benar
-      const { start, end, days } = getWeekRange(new Date());
-      setWeekData({
-        weekRange: { start, end, days },
-        dailyTotals: days.map(day => ({ date: day, income: 0, expense: 0 })),
-        totalIncome: 0,
-        totalExpense: 0,
-        maxValue: 1,
-      });
-      return;
-    }
+    const { start, end, days } = getWeekRange(weekStartDate);
     
-    const { start, end, days } = getWeekRange(new Date());
     // Filter transaksi dalam minggu ini
     const weekTransactions = transactions.filter(t => {
       const tDate = new Date(t.created_at);
@@ -213,12 +206,10 @@ const WeeklyBarChart = ({ transactions, userId, currency, convertedData }: {
       return { date: day, income, expense };
     });
     
-    const totalIncome = dailyTotals.reduce((sum, d) => sum + d.income, 0);
-    const totalExpense = dailyTotals.reduce((sum, d) => sum + d.expense, 0);
     const maxValue = Math.max(...dailyTotals.flatMap(d => [d.income, d.expense]), 1);
     
-    setWeekData({ weekRange: { start, end, days }, dailyTotals, totalIncome, totalExpense, maxValue });
-  }, [transactions, userId]);
+    setWeekData({ weekRange: { start, end, days }, dailyTotals, maxValue });
+  }, [transactions, weekStartDate]);
   
   if (!weekData) {
     return (
@@ -228,16 +219,19 @@ const WeeklyBarChart = ({ transactions, userId, currency, convertedData }: {
     );
   }
   
-  const { dailyTotals, totalIncome, totalExpense, maxValue } = weekData;
+  const { dailyTotals, maxValue } = weekData;
   const maxBarHeight = 140;
+  const barWidth = 22;
   const groupWidth = 56;
   const screenWidth = Dimensions.get('window').width;
-  const scrollWidth = Math.max(screenWidth - 32, dailyTotals.length * groupWidth);
-  const dayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const scrollWidth = Math.max(screenWidth - 48, dailyTotals.length * groupWidth);
+  const dayLabels = ["Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab"];
   
   // Gunakan data yang sudah dikonversi jika ada
-  const displayTotalIncome = convertedData?.totalIncome ?? totalIncome;
-  const displayTotalExpense = convertedData?.totalExpense ?? totalExpense;
+  const displayTotalIncome = convertedData?.totalIncome ?? 
+    dailyTotals.reduce((sum, d) => sum + d.income, 0);
+  const displayTotalExpense = convertedData?.totalExpense ?? 
+    dailyTotals.reduce((sum, d) => sum + d.expense, 0);
   const displayDailyTotals = convertedData?.dailyTotals ?? dailyTotals;
   
   // Hitung max value untuk chart berdasarkan data yang dikonversi
@@ -247,30 +241,68 @@ const WeeklyBarChart = ({ transactions, userId, currency, convertedData }: {
   
   const symbol = currencySymbols[currency] || currency;
   
+  // Cek apakah minggu ini adalah minggu berjalan
+  const today = new Date();
+  const currentWeekStart = getWeekRange(today).start;
+  const isCurrentWeek = weekData.weekRange.start.toDateString() === currentWeekStart.toDateString();
+  
   return (
     <View style={styles.weeklyCard}>
-      <View style={styles.weekHeader}>
-        <Text style={styles.weekRangeText}>
-          {formatDateShort(weekData.weekRange.start)} - {formatDateShort(weekData.weekRange.end)}
-        </Text>
-        <View style={styles.totalRow}>
-          <View style={styles.totalItem}>
-            <View style={[styles.legendDotSmall, { backgroundColor: "#44DA76" }]} />
-            <Text style={styles.totalLabel}>Income</Text>
-            <Text style={styles.totalValueGreen}>
-              {symbol} {displayTotalIncome.toLocaleString("id-ID", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </Text>
-          </View>
-          <View style={styles.totalItem}>
-            <View style={[styles.legendDotSmall, { backgroundColor: "#FF5E5E" }]} />
-            <Text style={styles.totalLabel}>Expense</Text>
-            <Text style={styles.totalValueRed}>
-              {symbol} {displayTotalExpense.toLocaleString("id-ID", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </Text>
-          </View>
+      {/* Navigasi Minggu */}
+      <View style={styles.weekNavContainer}>
+        <TouchableOpacity 
+          onPress={() => {
+            const newDate = new Date(weekStartDate);
+            newDate.setDate(weekStartDate.getDate() - 7);
+            onWeekChange(newDate);
+          }}
+          style={styles.navButton}
+        >
+          <Ionicons name="chevron-back" size={24} color="#44DA76" />
+        </TouchableOpacity>
+        
+        <View style={styles.weekInfo}>
+          <Text style={styles.weekRangeText}>
+            {formatWeekRange(weekData.weekRange.start, weekData.weekRange.end)}
+          </Text>
+          {isCurrentWeek && (
+            <View style={styles.currentWeekBadge}>
+              <Text style={styles.currentWeekText}>Minggu Ini</Text>
+            </View>
+          )}
+        </View>
+        
+        <TouchableOpacity 
+          onPress={() => {
+            const newDate = new Date(weekStartDate);
+            newDate.setDate(weekStartDate.getDate() + 7);
+            onWeekChange(newDate);
+          }}
+          style={styles.navButton}
+        >
+          <Ionicons name="chevron-forward" size={24} color="#44DA76" />
+        </TouchableOpacity>
+      </View>
+      
+      {/* Total Ringkasan */}
+      <View style={styles.totalRow}>
+        <View style={styles.totalCard}>
+          <Ionicons name="trending-up-outline" size={24} color="#4CD964" />
+          <Text style={styles.totalLabel}>Total Pemasukan</Text>
+          <Text style={styles.totalValueGreen}>
+            {symbol} {displayTotalIncome.toLocaleString("id-ID", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+          </Text>
+        </View>
+        <View style={styles.totalCard}>
+          <Ionicons name="trending-down-outline" size={24} color="#FF5E5E" />
+          <Text style={styles.totalLabel}>Total Pengeluaran</Text>
+          <Text style={styles.totalValueRed}>
+            {symbol} {displayTotalExpense.toLocaleString("id-ID", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+          </Text>
         </View>
       </View>
       
+      {/* Bar Chart */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chartScroll}>
         <View style={{ width: scrollWidth, flexDirection: "row", justifyContent: "space-around", alignItems: "flex-end", paddingVertical: 12 }}>
           {displayDailyTotals.map((item: any, idx: number) => {
@@ -283,12 +315,26 @@ const WeeklyBarChart = ({ transactions, userId, currency, convertedData }: {
                   <View style={[styles.bar, { height: Math.max(expenseHeight, 4), backgroundColor: "#FF5E5E" }]} />
                 </View>
                 <Text style={styles.dayLabel}>{dayLabels[idx]}</Text>
+                {/* Nilai di bawah bar (opsional) */}
+                <View style={styles.dayValues}>
+                  {item.income > 0 && (
+                    <Text style={styles.incomeSmall}>
+                      {symbol}{item.income.toLocaleString("id-ID", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                    </Text>
+                  )}
+                  {item.expense > 0 && (
+                    <Text style={styles.expenseSmall}>
+                      {symbol}{item.expense.toLocaleString("id-ID", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                    </Text>
+                  )}
+                </View>
               </View>
             );
           })}
         </View>
       </ScrollView>
       
+      {/* Legend */}
       <View style={styles.legendContainer}>
         <View style={styles.legendRow}>
           <View style={[styles.legendColor, { backgroundColor: "#44DA76" }]} />
@@ -319,6 +365,7 @@ export default function Home() {
     dailyTotals: any[];
   } | null>(null);
   const [loadingConversion, setLoadingConversion] = useState(false);
+  const [weekStartDate, setWeekStartDate] = useState(new Date());
 
   const greeting = getGreetingByTime();
   const symbol = currencySymbols[currency] || currency;
@@ -351,7 +398,7 @@ export default function Home() {
       setConvertedBalance(newConvertedBalance);
       
       // Konversi data untuk chart
-      const { start, end, days } = getWeekRange(new Date());
+      const { start, end, days } = getWeekRange(weekStartDate);
       const weekTransactions = transactions.filter(t => {
         const tDate = new Date(t.created_at);
         return tDate >= start && tDate <= end;
@@ -380,7 +427,7 @@ export default function Home() {
       const newConvertedBalance = convertCurrency(balance, currency);
       setConvertedBalance(newConvertedBalance);
     }
-  }, [currency, balance, transactions]);
+  }, [currency, balance, transactions, weekStartDate]);
 
   // FETCH USER
   useEffect(() => {
@@ -537,6 +584,8 @@ export default function Home() {
             userId={userId} 
             currency={currency}
             convertedData={convertedData}
+            weekStartDate={weekStartDate}
+            onWeekChange={setWeekStartDate}
           />
 
           {/* HISTORY */}
@@ -741,108 +790,58 @@ const styles = StyleSheet.create({
   detailButton: { paddingVertical: 8, paddingHorizontal: 14 },
   detailText: { color: "#44DA76", fontSize: 14, fontWeight: "600", left: 14 },
   
+  // Styles untuk Weekly Bar Chart (seperti analysis page)
   weeklyCard: {
     width: "90%",
-    backgroundColor: "#252525",
+    backgroundColor: "#1E1F1F",
     borderRadius: 20,
     padding: 16,
     marginTop: 10,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.08)",
   },
-  weekHeader: {
-    marginBottom: 12,
-    paddingHorizontal: 4,
-  },
-  weekRangeText: {
-    color: "#aaa",
-    fontSize: 14,
-    marginBottom: 8,
-    textAlign: "center",
-  },
-  totalRow: {
+  weekNavContainer: {
     flexDirection: "row",
+    alignItems: "center",
     justifyContent: "space-between",
     marginBottom: 12,
   },
-  totalItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#1e1e1e",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
+  navButton: {
+    padding: 8,
+    backgroundColor: "#2A2A2A",
+    borderRadius: 30,
   },
-  totalLabel: {
-    color: "white",
-    fontSize: 13,
-    marginLeft: 6,
-    marginRight: 6,
+  weekInfo: { alignItems: "center" },
+  weekRangeText: { color: "white", fontSize: 15, fontWeight: "600" },
+  currentWeekBadge: {
+    backgroundColor: "#44DA7620",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 12,
+    marginTop: 4,
   },
-  totalValueGreen: {
-    color: "#44DA76",
-    fontSize: 14,
-    fontWeight: "bold",
-  },
-  totalValueRed: {
-    color: "#FF5E5E",
-    fontSize: 14,
-    fontWeight: "bold",
-  },
-  chartScroll: {
-    marginVertical: 8,
-  },
-  barGroup: {
-    alignItems: "center",
-    width: 56,
-  },
-  barsContainer: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    justifyContent: "center",
-    height: 150,
-    marginBottom: 8,
-  },
-  bar: {
-    width: 22,
-    marginHorizontal: 2,
-    borderRadius: 6,
-    minHeight: 4,
-  },
-  dayLabel: {
-    color: "#aaa",
-    fontSize: 12,
-    marginTop: 6,
-  },
-  legendContainer: {
-    flexDirection: "row",
-    justifyContent: "center",
-    marginTop: 16,
-    paddingTop: 8,
-    borderTopWidth: 0.5,
-    borderTopColor: "#333",
-  },
-  legendRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginHorizontal: 16,
-  },
-  legendColor: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    marginRight: 6,
-  },
-  legendText: {
-    color: "#ccc",
-    fontSize: 13,
-  },
-  legendDotSmall: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    marginRight: 4,
-  },
+  currentWeekText: { color: "#44DA76", fontSize: 10 },
+  
+  totalRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 16, gap: 12 },
+  totalCard: { flex: 1, backgroundColor: "#2A2A2A", padding: 12, borderRadius: 12, alignItems: "center" },
+  totalLabel: { color: "#aaa", fontSize: 12, marginTop: 4 },
+  totalValueGreen: { color: "#44DA76", fontSize: 16, fontWeight: "bold" },
+  totalValueRed: { color: "#FF5E5E", fontSize: 16, fontWeight: "bold" },
+  
+  chartScroll: { marginVertical: 8 },
+  barGroup: { alignItems: "center", width: 56 },
+  barsContainer: { flexDirection: "row", alignItems: "flex-end", justifyContent: "center", height: 150, marginBottom: 8 },
+  bar: { width: 22, marginHorizontal: 2, borderRadius: 6, minHeight: 4 },
+  dayLabel: { color: "#aaa", fontSize: 11, marginTop: 4 },
+  dayValues: { alignItems: "center", marginTop: 4 },
+  incomeSmall: { color: "#44DA76", fontSize: 9 },
+  expenseSmall: { color: "#FF5E5E", fontSize: 9 },
+  
+  legendContainer: { flexDirection: "row", justifyContent: "center", marginTop: 16, paddingTop: 12, borderTopWidth: 0.5, borderTopColor: "#333" },
+  legendRow: { flexDirection: "row", alignItems: "center", marginHorizontal: 16 },
+  legendColor: { width: 14, height: 14, borderRadius: 7, marginRight: 6 },
+  legendText: { color: "#ccc", fontSize: 13 },
+  legendDotSmall: { width: 10, height: 10, borderRadius: 5, marginRight: 4 },
   
   historyWrapper: { width: "90%", marginTop: 25 },
   historyHeader: {
