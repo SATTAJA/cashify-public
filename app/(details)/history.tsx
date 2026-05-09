@@ -6,9 +6,11 @@ import {
   StyleSheet,
   FlatList,
   Modal,
+  ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../lib/supabase";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   ShoppingCart,
   Utensils,
@@ -26,6 +28,7 @@ import {
   Trash2,
 } from "lucide-react-native";
 import { router } from "expo-router";
+import { getCurrencySymbol, getAllCurrencies } from "../../constants/currencies";
 
 /* =====================================
    TYPE DEFINITIONS
@@ -69,6 +72,12 @@ const expenseIconMap: Record<string, IconType> = {
   Lainnya: <PlusCircle color="#74C1FF" size={22} />,
 };
 
+// Fungsi untuk konversi kurs (IDR ke mata uang lain)
+const convertFromIDR = (amountInIDR: number, targetCurrency: string, rates: { [key: string]: number }): number => {
+  const rate = rates[targetCurrency] || 1;
+  return amountInIDR * rate;
+};
+
 /* =====================================
    MAIN PAGE
 ===================================== */
@@ -82,6 +91,73 @@ export default function HistoryPage() {
   const [selected, setSelected] = useState<Transaction | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+
+  // State untuk mata uang
+  const [currency, setCurrency] = useState<string>("IDR");
+  const [currencySymbol, setCurrencySymbol] = useState<string>("Rp");
+  const [exchangeRates, setExchangeRates] = useState<{ [key: string]: number } | null>(null);
+  const [loadingCurrency, setLoadingCurrency] = useState(true);
+
+  /* LOAD CURRENCY FROM PREFERENCES */
+  useEffect(() => {
+    const loadCurrency = async () => {
+      try {
+        const savedCurrency = await AsyncStorage.getItem("currency");
+        if (savedCurrency) {
+          setCurrency(savedCurrency);
+          const symbol = getCurrencySymbol(savedCurrency);
+          setCurrencySymbol(symbol);
+        } else {
+          setCurrency("IDR");
+          setCurrencySymbol("Rp");
+        }
+      } catch (error) {
+        console.error("Error loading currency:", error);
+        setCurrency("IDR");
+        setCurrencySymbol("Rp");
+      }
+    };
+    loadCurrency();
+  }, []);
+
+  /* LOAD EXCHANGE RATES */
+  useEffect(() => {
+    const loadExchangeRates = async () => {
+      try {
+        const response = await fetch(`https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/idr.json`);
+        
+        if (response.ok) {
+          const data = await response.json();
+          if (data && data.idr) {
+            const rates: { [key: string]: number } = { IDR: 1 };
+            
+            const supportedCurrencies = getAllCurrencies().map(c => c.code);
+            
+            supportedCurrencies.forEach(currencyCode => {
+              if (currencyCode === "IDR") {
+                rates[currencyCode] = 1;
+              } else {
+                const lowerCurrency = currencyCode.toLowerCase();
+                if (data.idr[lowerCurrency]) {
+                  rates[currencyCode] = data.idr[lowerCurrency];
+                } else {
+                  rates[currencyCode] = 1;
+                }
+              }
+            });
+            
+            setExchangeRates(rates);
+          }
+        }
+      } catch (error) {
+        console.error("Error loading exchange rates:", error);
+      } finally {
+        setLoadingCurrency(false);
+      }
+    };
+    
+    loadExchangeRates();
+  }, []);
 
   /* GET USER */
   useEffect(() => {
@@ -152,6 +228,16 @@ export default function HistoryPage() {
         ? incomeIconMap[cat] ?? <Wallet color="#74C1FF" size={22} />
         : expenseIconMap[cat] ?? <Package color="#74C1FF" size={22} />;
 
+    // Konversi amount ke mata uang yang dipilih
+    const convertedAmount = exchangeRates 
+      ? convertFromIDR(item.amount, currency, exchangeRates)
+      : item.amount;
+    
+    const formattedAmount = convertedAmount.toLocaleString("id-ID", { 
+      minimumFractionDigits: 2, 
+      maximumFractionDigits: 2 
+    });
+
     return (
       <TouchableOpacity style={styles.card} onPress={() => openDetail(item)}>
         <View style={styles.iconBox}>{icon}</View>
@@ -161,7 +247,6 @@ export default function HistoryPage() {
           <Text style={styles.cardSubtitle}>
             {item.type === "income" ? "Pemasukan" : "Pengeluaran"}
           </Text>
-
         </View>
 
         <Text
@@ -170,12 +255,22 @@ export default function HistoryPage() {
             { color: item.type === "income" ? "#4CD964" : "#FF4E4E" },
           ]}
         >
-          {item.type === "income" ? "+" : "-"} Rp{" "}
-          {item.amount.toLocaleString("id-ID")}
+          {item.type === "income" ? "+" : "-"} {currencySymbol}{" "}
+          {formattedAmount}
         </Text>
       </TouchableOpacity>
     );
   };
+
+  // Tampilkan loading saat mengambil kurs
+  if (loadingCurrency) {
+    return (
+      <View style={[styles.container, styles.loadingContainer]}>
+        <ActivityIndicator size="large" color="#44DA76" />
+        <Text style={styles.loadingText}>Memuat data mata uang...</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -266,7 +361,13 @@ export default function HistoryPage() {
 
             <Text style={styles.detailLabel}>Nominal:</Text>
             <Text style={styles.detailValue}>
-              Rp {selected?.amount.toLocaleString("id-ID")}
+              {currencySymbol}{" "}
+              {selected && exchangeRates 
+                ? convertFromIDR(selected.amount, currency, exchangeRates).toLocaleString("id-ID", { 
+                    minimumFractionDigits: 2, 
+                    maximumFractionDigits: 2 
+                  })
+                : selected?.amount.toLocaleString("id-ID")}
             </Text>
 
             <Text style={styles.detailLabel}>Catatan:</Text>
@@ -344,6 +445,15 @@ const styles = StyleSheet.create({
     backgroundColor: "#151716",
     paddingHorizontal: 18,
     paddingTop: 55,
+  },
+  loadingContainer: {
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  loadingText: {
+    color: "white",
+    marginTop: 20,
+    fontSize: 16,
   },
   header: {
     flexDirection: "row",

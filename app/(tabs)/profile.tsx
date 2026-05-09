@@ -1,102 +1,195 @@
-import React, { useEffect, useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   Image,
+  Alert,
+  ScrollView,
   ActivityIndicator,
+  Modal,
+  TextInput,
 } from "react-native";
-import { supabase } from "../../lib/supabase";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { supabase } from "../../lib/supabase";
+import { getCurrencySymbol, getAllCurrencies } from "../../constants/currencies";
 
 export default function Profile() {
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [currency, setCurrency] = useState("IDR");
+  const [currencySymbol, setCurrencySymbol] = useState("Rp");
+  const [showCurrencyModal, setShowCurrencyModal] = useState(false);
+  const [selectedCurrency, setSelectedCurrency] = useState(currency);
+
+  // Daftar mata uang yang didukung
+  const currencies = getAllCurrencies();
 
   useEffect(() => {
-    const fetchUser = async () => {
+    loadUser();
+    loadCurrency();
+  }, []);
+
+  const loadUser = async () => {
+    try {
       const { data } = await supabase.auth.getUser();
       setUser(data.user);
+    } catch (error) {
+      console.error("Error loading user:", error);
+    } finally {
       setLoading(false);
-    };
+    }
+  };
 
-    fetchUser();
-  }, []);
+  const loadCurrency = async () => {
+    try {
+      const savedCurrency = await AsyncStorage.getItem("currency");
+      if (savedCurrency) {
+        setCurrency(savedCurrency);
+        const symbol = getCurrencySymbol(savedCurrency);
+        setCurrencySymbol(symbol);
+        setSelectedCurrency(savedCurrency);
+      }
+    } catch (error) {
+      console.error("Error loading currency:", error);
+    }
+  };
+
+  const handleSaveCurrency = async () => {
+    try {
+      await AsyncStorage.setItem("currency", selectedCurrency);
+      setCurrency(selectedCurrency);
+      const symbol = getCurrencySymbol(selectedCurrency);
+      setCurrencySymbol(symbol);
+      setShowCurrencyModal(false);
+      Alert.alert("Berhasil", "Mata uang berhasil diubah");
+    } catch (error) {
+      console.error("Error saving currency:", error);
+      Alert.alert("Error", "Gagal menyimpan mata uang");
+    }
+  };
+
+  const handleLogout = async () => {
+    Alert.alert(
+      "Konfirmasi",
+      "Apakah Anda yakin ingin keluar?",
+      [
+        { text: "Batal", style: "cancel" },
+        {
+          text: "Keluar",
+          style: "destructive",
+          onPress: async () => {
+            await supabase.auth.signOut();
+            await AsyncStorage.removeItem("session");
+            router.replace("/auth");
+          },
+        },
+      ]
+    );
+  };
 
   if (loading) {
     return (
-      <View style={styles.center}>
+      <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#44DA76" />
+        <Text style={styles.loadingText}>Memuat profil...</Text>
       </View>
     );
   }
 
-  const name = user?.user_metadata?.username || "User";
-  const email = user?.email;
-  const avatar = user?.user_metadata?.avatar_url || null;
-
   return (
-    <View style={styles.container}>
+    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
       {/* Header */}
       <View style={styles.header}>
-        <Ionicons
-          name="chevron-back"
-          size={26}
-          color="#44DA76"
-          onPress={() => router.back()}
-        />
-        <Text style={styles.headerTitle}>Pengaturan</Text>
-        <View style={{ width: 26 }} /> 
+        <TouchableOpacity onPress={() => router.replace("/home")} style={styles.backButton}>
+          <Ionicons name="arrow-back" size={24} color="white" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Profil Saya</Text>
+        <View style={styles.placeholder} />
       </View>
 
-      {/* Upper Curve Section */}
-      <View style={styles.topSection} />
-
-      {/* Avatar */}
-      <View style={styles.avatarWrapper}>
-        {avatar ? (
-          <Image source={{ uri: avatar }} style={styles.avatar} />
-        ) : (
-          <View style={styles.avatarPlaceholder}>
-            <Ionicons name="person-outline" size={45} color="#bbb" />
-          </View>
-        )}
+      {/* Avatar Section */}
+      <View style={styles.avatarSection}>
+        <View style={styles.avatarContainer}>
+          {user?.user_metadata?.avatar_url ? (
+            <Image
+              source={require("../../assets/images/cashify-splash.png")}
+              style={styles.avatar}
+            />
+          ) : (
+            <View style={styles.avatarPlaceholder}>
+              <Image
+                source={require("../../assets/images/cashify-splash.png")}
+                style={styles.avatar}
+              />
+            </View>
+          )}
+        </View>
+        <Text style={styles.username}>
+          {user?.user_metadata?.username || user?.email?.split("@")[0] || "User"}
+        </Text>
+        <Text style={styles.email}>{user?.email}</Text>
       </View>
 
-      {/* Name & Email */}9
-      <Text style={styles.name}>{name}</Text>
-      <Text style={styles.email}>{email}</Text>
+      {/* Menu Items */}
+      <View style={styles.menuSection}>
+        <Text style={styles.sectionTitle}>Pengaturan</Text>
 
-      {/* Change Password */}
-      <TouchableOpacity
-        style={styles.changePassBtn}
-        onPress={() => router.push("/(auth)/forgot")}
-      >
-        <Text style={styles.changePassText}>Ganti kata sandi</Text>
-        <Ionicons name="chevron-forward" size={20} color="#44DA76" />
-      </TouchableOpacity>
-
+        {/* Currency Setting */}
         <TouchableOpacity
-        style={styles.changePassBtn}
-        onPress={() => router.push("/preferences")}
+          style={styles.menuItem}
+          onPress={() => router.replace("/currency")}
         >
-        <Text style={styles.changePassText}>Ganti mata uang</Text>
-        <Ionicons name="chevron-forward" size={20} color="#44DA76" />
+          <View style={styles.menuIcon}>
+            <Ionicons name="cash-outline" size={24} color="#44DA76" />
+          </View>
+          <View style={styles.menuContent}>
+            <Text style={styles.menuTitle}>Mata Uang</Text>
+            <Text style={styles.menuSubtitle}>
+              {currency} ({currencySymbol})
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color="#666" />
         </TouchableOpacity>
 
-      {/* Logout */}
-      <TouchableOpacity
-        style={styles.logoutBtn}
-        onPress={async () => {
-          await supabase.auth.signOut();
-          router.replace("/auth");
-        }}
-      >
-        <Text style={styles.logoutText}>Keluar</Text>
-      </TouchableOpacity>
-    </View>
+        {/* Account Settings */}
+        <TouchableOpacity style={styles.menuItem} onPress={() => router.push("/forgot")}>
+          <View style={styles.menuIcon}>
+            <Ionicons name="lock-closed-outline" size={24} color="#44DA76" />
+          </View>
+          <View style={styles.menuContent}>
+            <Text style={styles.menuTitle}>Ubah Kata sandi</Text>
+            <Text style={styles.menuSubtitle}>Anda dapat mengubah kata sandi</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color="#666" />
+        </TouchableOpacity>
+
+        {/* About */}
+        <TouchableOpacity style={styles.menuItem} onPress={() => router.push("/about")}>
+          <View style={styles.menuIcon}>
+            <Ionicons name="information-circle-outline" size={24} color="#44DA76" />
+          </View>
+          <View style={styles.menuContent}>
+            <Text style={styles.menuTitle}>Tentang Aplikasi</Text>
+            <Text style={styles.menuSubtitle}>Versi 1.0.0</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color="#666" />
+        </TouchableOpacity>
+
+        {/* Logout */}
+        <TouchableOpacity style={[styles.menuItem, styles.logoutItem]} onPress={handleLogout}>
+          <View style={styles.menuIcon}>
+            <Ionicons name="log-out-outline" size={24} color="#FF5E5E" />
+          </View>
+          <View style={styles.menuContent}>
+            <Text style={[styles.menuTitle, styles.logoutText]}>Keluar</Text>
+          </View>
+        </TouchableOpacity>
+      </View>
+    </ScrollView>
   );
 }
 
@@ -105,98 +198,194 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#151716",
   },
-  center: {
+  loadingContainer: {
     flex: 1,
+    backgroundColor: "#151716",
     justifyContent: "center",
     alignItems: "center",
   },
-
-  // HEADER
+  loadingText: {
+    color: "white",
+    marginTop: 10,
+    fontSize: 16,
+  },
   header: {
     flexDirection: "row",
+    justifyContent: "space-between",
     alignItems: "center",
     paddingHorizontal: 20,
-    paddingTop: 45,
-    paddingBottom: 15,
-    justifyContent: "space-between",
+    paddingTop: 60,
+    paddingBottom: 20,
+    backgroundColor: "#151716",
+  },
+  backButton: {
+    padding: 5,
   },
   headerTitle: {
     color: "white",
-    fontSize: 18,
-    fontWeight: "700",
+    fontSize: 20,
+    fontWeight: "bold",
   },
-
-  // TOP ROUND SECTION
-  topSection: {
-    height: 110,
-    backgroundColor: "#0F0F0F",
-    borderBottomLeftRadius: 40,
-    borderBottomRightRadius: 40,
+  placeholder: {
+    width: 34,
   },
-
-  // AVATAR
-  avatarWrapper: {
-    marginTop: -55,
-    alignSelf: "center",
+  avatarSection: {
+    alignItems: "center",
+    paddingVertical: 20,
+  },
+  avatarContainer: {
+    marginBottom: 15,
   },
   avatar: {
-    width: 110,
-    height: 110,
-    borderRadius: 70,
+    width: 100,
+    height: 100,
+    borderRadius: 50,
   },
   avatarPlaceholder: {
-    width: 110,
-    height: 110,
-    borderRadius: 70,
+    width: 100,
+    height: 100,
+    borderRadius: 50,
     backgroundColor: "#2A2A2A",
     justifyContent: "center",
     alignItems: "center",
+    borderWidth: 2,
+    borderColor: "#44DA76",
   },
-
-  // NAME & EMAIL
-  name: {
-    marginTop: 15,
+  username: {
     color: "white",
-    textAlign: "center",
-    fontSize: 20,
-    fontWeight: "700",
+    fontSize: 24,
+    fontWeight: "bold",
+    marginBottom: 5,
   },
   email: {
-    marginTop: 5,
-    color: "#ccc",
-    textAlign: "center",
+    color: "#888",
     fontSize: 14,
   },
-
-  // CHANGE PASSWORD ROW
-  changePassBtn: {
+  menuSection: {
+    paddingHorizontal: 20,
+    paddingTop: 20,
+  },
+  sectionTitle: {
+    color: "#44DA76",
+    fontSize: 16,
+    fontWeight: "600",
+    marginBottom: 15,
+  },
+  menuItem: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    backgroundColor: "#222",
-    padding: 15,
-    marginHorizontal: 25,
-    borderRadius: 10,
-    marginTop: 35,
     alignItems: "center",
-  },
-  changePassText: {
-    color: "white",
-    fontSize: 15,
-    fontWeight: "500",
-  },
-
-  // LOGOUT
-  logoutBtn: {
-    marginTop: 40,
-    marginHorizontal: 25,
-    backgroundColor: "#F55353",
-    paddingVertical: 15,
+    backgroundColor: "#1E1F1F",
+    padding: 15,
     borderRadius: 12,
+    marginBottom: 10,
+  },
+  menuIcon: {
+    marginRight: 15,
+  },
+  menuContent: {
+    flex: 1,
+  },
+  menuTitle: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "500",
+    marginBottom: 2,
+  },
+  menuSubtitle: {
+    color: "#888",
+    fontSize: 12,
+  },
+  logoutItem: {
+    marginTop: 20,
   },
   logoutText: {
-    textAlign: "center",
+    color: "#FF5E5E",
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "flex-end",
+  },
+  modalContainer: {
+    backgroundColor: "#1E1F1F",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: "80%",
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: "#333",
+  },
+  modalTitle: {
     color: "white",
-    fontWeight: "700",
+    fontSize: 18,
+    fontWeight: "bold",
+  },
+  currencyList: {
+    padding: 20,
+  },
+  currencyItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 15,
+    borderRadius: 10,
+    marginBottom: 10,
+    backgroundColor: "#2A2A2A",
+  },
+  currencySelected: {
+    backgroundColor: "#44DA7620",
+    borderWidth: 1,
+    borderColor: "#44DA76",
+  },
+  currencySymbol: {
+    fontSize: 24,
+    marginRight: 15,
+  },
+  currencyInfo: {
+    flex: 1,
+  },
+  currencyCode: {
+    color: "white",
     fontSize: 16,
+    fontWeight: "bold",
+  },
+  currencyName: {
+    color: "#888",
+    fontSize: 12,
+    marginTop: 2,
+  },
+  modalButtons: {
+    flexDirection: "row",
+    padding: 20,
+    gap: 10,
+    borderTopWidth: 1,
+    borderTopColor: "#333",
+  },
+  cancelButton: {
+    flex: 1,
+    padding: 12,
+    borderRadius: 10,
+    backgroundColor: "#333",
+    alignItems: "center",
+  },
+  cancelButtonText: {
+    color: "white",
+    fontSize: 16,
+  },
+  saveButton: {
+    flex: 1,
+    padding: 12,
+    borderRadius: 10,
+    backgroundColor: "#44DA76",
+    alignItems: "center",
+  },
+  saveButtonText: {
+    color: "#151716",
+    fontSize: 16,
+    fontWeight: "bold",
   },
 });

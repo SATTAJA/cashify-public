@@ -661,13 +661,13 @@ export default function Home() {
       {/* HEADER */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
-          {user?.avatar_url ? (
-            <Image source={{ uri: user.avatar_url }} style={styles.avatar} />
-          ) : (
-            <View style={styles.avatarPlaceholder}>
-              <Ionicons name="person-outline" size={22} color="white" />
-            </View>
-          )}
+          {/* Logo Cashify - selalu tampil, tidak tergantung user avatar */}
+          <View style={styles.logoContainer}>
+            <Image 
+              source={require("../../assets/images/cashify-splash.png")} 
+              style={styles.logoImage}
+            />
+          </View>
           <View style={styles.userInfoContainer}>
             <Text style={styles.greetingText}>{greeting}</Text>
             <Text style={styles.usernameText}>
@@ -877,6 +877,20 @@ const styles = StyleSheet.create({
     color: "#888",
     fontSize: 12,
     marginBottom: 2,
+  },
+  logoContainer: {
+    width: 50,
+    height: 50,
+    borderRadius: 30,
+    backgroundColor: "#1E1F1F",
+    justifyContent: "center",
+    alignItems: "center",
+    overflow: "hidden",
+  },
+  logoImage: {
+    width: 40,
+    height: 40,
+    resizeMode: "contain",
   },
   avatar: { width: 50, height: 50, borderRadius: 30 },
   avatarPlaceholder: {

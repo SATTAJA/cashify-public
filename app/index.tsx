@@ -1,99 +1,41 @@
 import { useEffect } from "react";
 import { View } from "react-native";
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withTiming,
-  withDelay,
-  withRepeat,
-  withSequence,
-  Easing,
-} from "react-native-reanimated";
-import { supabase } from "../lib/supabase";
+import { useVideoPlayer, VideoView } from "expo-video";
 import { router } from "expo-router";
+import { supabase } from "../lib/supabase";
 
 export default function SplashScreen() {
-  // animasi
-  const logoScale = useSharedValue(0);
-  const logoOpacity = useSharedValue(0);
-  const textScale = useSharedValue(0);
-  const textOpacity = useSharedValue(0);
-  const dot1 = useSharedValue(0.3);
-  const dot2 = useSharedValue(0.3);
-  const dot3 = useSharedValue(0.3);
+  // Inisialisasi video player dengan file lokal
+  const videoSource = require("../assets/video/splash-video.mp4");
+  const player = useVideoPlayer(videoSource, (player) => {
+    player.loop = false;
+    player.muted = false;
+    player.play();
+  });
 
   useEffect(() => {
-    const checkSession = async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (session) {
-        router.replace("/(tabs)/home");
-      } else {
-        router.replace("/auth");
-      }
+    const checkSessionAndNavigate = async () => {
+      // Tunggu video selesai diputar (2 detik)
+      setTimeout(async () => {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        
+        if (session) {
+          router.replace("/(tabs)/home");
+        } else {
+          router.replace("/auth");
+        }
+      }, 2500); // 2 detik sesuai durasi video
     };
 
-    const startAnimation = () => {
-      // animasi logo
-      logoScale.value = withTiming(1, {
-        duration: 800,
-        easing: Easing.out(Easing.exp),
-      });
-      logoOpacity.value = withTiming(1, { duration: 800 });
-
-      // animasi teks
-      textScale.value = withDelay(
-        400,
-        withTiming(1, {
-          duration: 800,
-          easing: Easing.out(Easing.exp),
-        })
-      );
-      textOpacity.value = withDelay(400, withTiming(1, { duration: 800 }));
-
-      // animasi loading dots
-      const pulse = (dot: typeof dot1, delay: number) => {
-        dot.value = withDelay(
-          delay,
-          withRepeat(
-            withSequence(
-              withTiming(1, { duration: 400 }),
-              withTiming(0.3, { duration: 400 })
-            ),
-            -1,
-            false
-          )
-        );
-      };
-
-      pulse(dot1, 0);
-      pulse(dot2, 200);
-      pulse(dot3, 400);
-
-      // pindah setelah 3.5 detik
-      setTimeout(() => {
-        checkSession();
-      }, 3500);
-    };
-
-    startAnimation();
-  }, []);
-
-  // style animasi
-  const logoStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: logoScale.value }],
-    opacity: logoOpacity.value,
-  }));
-
-  const textStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: textScale.value }],
-    opacity: textOpacity.value,
-  }));
-
-  const dot1Style = useAnimatedStyle(() => ({ opacity: dot1.value }));
-  const dot2Style = useAnimatedStyle(() => ({ opacity: dot2.value }));
-  const dot3Style = useAnimatedStyle(() => ({ opacity: dot3.value }));
+    checkSessionAndNavigate();
+    
+    // HAPUS cleanup function ini:
+    // return () => {
+    //   player.pause(); // ❌ JANGAN lakukan ini
+    // };
+  }, [player]);
 
   return (
     <View
@@ -104,72 +46,15 @@ export default function SplashScreen() {
         alignItems: "center",
       }}
     >
-      <Animated.Image
-        source={require("../assets/images/cashify-splash.png")}
-        style={[
-          {
-            width: 140,
-            height: 140,
-            resizeMode: "contain",
-          },
-          logoStyle,
-        ]}
-      />
-      <Animated.Text
-        style={[
-          {
-            color: "#44DA76",
-            fontSize: 32,
-            fontWeight: "bold",
-            marginTop: 20,
-          },
-          textStyle,
-        ]}
-      >
-        Cashify
-      </Animated.Text>
-
-      <View
+      <VideoView
+        player={player}
         style={{
-          flexDirection: "row",
-          marginTop: 15,
-          gap: 8,
+          width: "100%",
+          height: "100%",
         }}
-      >
-        <Animated.View
-          style={[
-            {
-              width: 10,
-              height: 10,
-              borderRadius: 5,
-              backgroundColor: "#44DA76",
-            },
-            dot1Style,
-          ]}
-        />
-        <Animated.View
-          style={[
-            {
-              width: 10,
-              height: 10,
-              borderRadius: 5,
-              backgroundColor: "#44DA76",
-            },
-            dot2Style,
-          ]}
-        />
-        <Animated.View
-          style={[
-            {
-              width: 10,
-              height: 10,
-              borderRadius: 5,
-              backgroundColor: "#44DA76",
-            },
-            dot3Style,
-          ]}
-        />
-      </View>
+        contentFit="contain"
+        nativeControls={false}
+      />
     </View>
   );
 }
