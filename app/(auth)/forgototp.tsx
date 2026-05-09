@@ -10,10 +10,13 @@ import {
   NativeSyntheticEvent,
   TextInputKeyPressEventData,
   Platform,
+  KeyboardAvoidingView,
+  ScrollView,
 } from "react-native";
-import { ArrowLeft, ChevronLeft } from "lucide-react-native";
+import { ChevronLeft, KeyRound, Shield, Mail } from "lucide-react-native";
 import { supabase } from "../../lib/supabase";
 import { useLocalSearchParams, router } from "expo-router";
+import { LinearGradient } from "expo-linear-gradient";
 
 const BOX_SIZE = 55;
 
@@ -106,102 +109,214 @@ const ForgotOtp: React.FC = () => {
   };
 
   return (
-    <View style={styles.container}>
-      <TouchableOpacity onPress={() => router.back()} style={styles.back}>
-        <ChevronLeft color="#44DA76" size={35} style={{ marginTop: 20 }} />
-      </TouchableOpacity>
-
-      <Text style={styles.title}>Masukkan OTP</Text>
-      <Text style={styles.subtitle}>Kode OTP sudah terkirim ke email kamu</Text>
-      <Text style={styles.email}>{email}</Text>
-
-      <View style={styles.otpContainer}>
-        {otp.map((digit, i) => (
-          <TextInput
-            key={i}
-            ref={(ref) => {
-              otpRefs.current[i] = ref;
-            }}
-            style={[
-              styles.otpInput,
-              focusedIndex === i && styles.otpInputFocused, // efek bercahaya hijau
-            ]}
-            keyboardType="number-pad"
-            maxLength={6}
-            value={digit}
-            onFocus={() => setFocusedIndex(i)}
-            onBlur={() => setFocusedIndex(null)}
-            onChangeText={(t) => handleOtpChange(t, i)}
-            onKeyPress={(e) => handleKeyPress(e, i)}
-            textAlign="center"
-            placeholder="-"
-            placeholderTextColor="gray"
-            selectionColor="transparent" // hilangkan caret
-            caretHidden={true} // tidak ada garis kedip
-            allowFontScaling={false}
-          />
-        ))}
-      </View>
-
-      <TouchableOpacity
-        onPress={handleVerifyOtp}
-        style={[styles.button, loading && { opacity: 0.7 }]}
-        disabled={loading}
+    <KeyboardAvoidingView 
+      style={{ flex: 1 }} 
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+    >
+      <ScrollView 
+        style={styles.container}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
       >
-        {loading ? (
-          <ActivityIndicator color="white" />
-        ) : (
-          <Text style={styles.buttonText}>Verifikasi OTP</Text>
-        )}
-      </TouchableOpacity>
+        {/* Header Gradient */}
+        <LinearGradient
+          colors={['#1a1f1e', '#151716']}
+          style={styles.header}
+        >
+          <TouchableOpacity 
+            onPress={() => router.back()} 
+            style={styles.backButton}
+            activeOpacity={0.8}
+          >
+            <ChevronLeft color="#44DA76" size={28} />
+          </TouchableOpacity>
 
-      <Text style={styles.info}>Segera cek email untuk melihat kode OTP</Text>
-    </View>
+          <View style={styles.iconCircle}>
+            <Shield size={48} color="#44DA76" />
+          </View>
+          
+          <Text style={styles.title}>Verifikasi Kode OTP</Text>
+          <Text style={styles.subtitle}>
+            Masukkan kode verifikasi 6 digit yang telah dikirim ke
+          </Text>
+          
+          <View style={styles.emailContainer}>
+            <Mail size={16} color="#44DA76" />
+            <Text style={styles.email}>{email}</Text>
+          </View>
+        </LinearGradient>
+
+        {/* OTP Section */}
+        <View style={styles.otpSection}>
+          <View style={styles.otpCard}>
+            <KeyRound size={24} color="#44DA76" style={styles.otpIcon} />
+            <Text style={styles.otpLabel}>Kode Verifikasi</Text>
+            
+            <View style={styles.otpContainer}>
+              {otp.map((digit, i) => (
+                <TextInput
+                  key={i}
+                  ref={(ref) => {
+                    otpRefs.current[i] = ref;
+                  }}
+                  style={[
+                    styles.otpInput,
+                    focusedIndex === i && styles.otpInputFocused,
+                    digit && styles.otpInputFilled,
+                  ]}
+                  keyboardType="number-pad"
+                  maxLength={6}
+                  value={digit}
+                  onFocus={() => setFocusedIndex(i)}
+                  onBlur={() => setFocusedIndex(null)}
+                  onChangeText={(t) => handleOtpChange(t, i)}
+                  onKeyPress={(e) => handleKeyPress(e, i)}
+                  textAlign="center"
+                  placeholder="•"
+                  placeholderTextColor="#444"
+                  selectionColor="transparent"
+                  caretHidden={true}
+                  allowFontScaling={false}
+                />
+              ))}
+            </View>
+
+            <TouchableOpacity
+              onPress={handleVerifyOtp}
+              style={[styles.button, loading && styles.buttonDisabled]}
+              disabled={loading}
+              activeOpacity={0.8}
+            >
+              {loading ? (
+                <ActivityIndicator color="white" size="small" />
+              ) : (
+                <Text style={styles.buttonText}>Verifikasi & Lanjutkan</Text>
+              )}
+            </TouchableOpacity>
+
+            <View style={styles.infoContainer}>
+              <Text style={styles.infoText}>
+                Belum menerima kode? Cek folder spam atau
+              </Text>
+              <TouchableOpacity onPress={() => router.back()}>
+                <Text style={styles.infoLink}> kirim ulang</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 };
 
 export default ForgotOtp;
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#151716" },
-  back: { position: "absolute", top: 50, left: 25 },
+  container: {
+    flex: 1,
+    backgroundColor: "#151716",
+  },
+  scrollContent: {
+    flexGrow: 1,
+  },
+  header: {
+    paddingTop: Platform.OS === "ios" ? 60 : 40,
+    paddingBottom: 40,
+    paddingHorizontal: 25,
+    borderBottomLeftRadius: 30,
+    borderBottomRightRadius: 30,
+    alignItems: "center",
+  },
+  backButton: {
+    position: "absolute",
+    top: Platform.OS === "ios" ? 60 : 40,
+    left: 25,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(68, 218, 118, 0.1)",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 10,
+  },
+  iconCircle: {
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+    backgroundColor: "rgba(68, 218, 118, 0.1)",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 20,
+    marginTop: 20,
+  },
   title: {
     fontSize: 28,
     color: "white",
     fontWeight: "bold",
-    marginTop: 150,
-    marginHorizontal: 25,
     textAlign: "center",
+    marginBottom: 10,
   },
   subtitle: {
-    fontSize: 15,
-    color: "gray",
-    marginTop: 10,
-    marginHorizontal: 25,
+    fontSize: 14,
+    color: "#aaa",
     textAlign: "center",
+    lineHeight: 20,
+  },
+  emailContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 12,
+    paddingVertical: 6,
+    paddingHorizontal: 16,
+    backgroundColor: "rgba(68, 218, 118, 0.1)",
+    borderRadius: 20,
   },
   email: {
-    fontSize: 15,
-    color: "darkgray",
-    marginTop: 35,
-    textAlign: "center",
+    fontSize: 14,
+    color: "#44DA76",
+    fontWeight: "500",
+  },
+  otpSection: {
+    flex: 1,
+    paddingHorizontal: 20,
+    paddingTop: 30,
+    paddingBottom: 40,
+  },
+  otpCard: {
+    backgroundColor: "#1C1C1E",
+    borderRadius: 24,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: "#2C2C2E",
+    alignItems: "center",
+  },
+  otpIcon: {
+    marginBottom: 12,
+  },
+  otpLabel: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
+    marginBottom: 24,
   },
   otpContainer: {
     flexDirection: "row",
     justifyContent: "space-between",
-    marginHorizontal: 25,
-    marginTop: 25,
+    gap: 10,
+    marginBottom: 32,
+    width: "100%",
   },
   otpInput: {
-    width: BOX_SIZE,
+    flex: 1,
     height: BOX_SIZE,
-    backgroundColor: "#252525",
-    borderRadius: 15,
-    fontSize: 28,
+    backgroundColor: "#151716",
+    borderRadius: 12,
+    fontSize: 24,
     fontWeight: "bold",
     color: "white",
-    borderWidth: 1,
-    borderColor: "gray",
+    borderWidth: 1.5,
+    borderColor: "#2C2C2E",
     textAlign: "center",
     textAlignVertical: "center",
     includeFontPadding: false,
@@ -213,27 +328,45 @@ const styles = StyleSheet.create({
     borderColor: "#44DA76",
     shadowColor: "#44DA76",
     shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 6,
-    elevation: 8, // efek glow di Android
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  otpInputFilled: {
+    borderColor: "#44DA76",
+    backgroundColor: "rgba(68, 218, 118, 0.05)",
   },
   button: {
     backgroundColor: "#44DA76",
-    borderRadius: 100,
-    height: 55,
+    borderRadius: 12,
+    height: 52,
     justifyContent: "center",
-    marginHorizontal: 25,
-    marginTop: 60,
+    alignItems: "center",
+    width: "100%",
+    marginBottom: 20,
+  },
+  buttonDisabled: {
+    opacity: 0.7,
   },
   buttonText: {
     color: "white",
-    textAlign: "center",
     fontSize: 16,
     fontWeight: "bold",
   },
-  info: {
-    color: "gray",
-    textAlign: "center",
-    marginTop: 20,
+  infoContainer: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    flexWrap: "wrap",
+    marginTop: 10,
+  },
+  infoText: {
+    color: "#999",
+    fontSize: 13,
+  },
+  infoLink: {
+    color: "#44DA76",
+    fontSize: 13,
+    fontWeight: "600",
   },
 });
