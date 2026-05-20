@@ -23,6 +23,7 @@ import { supabase } from "../../lib/supabase";
 import { useCallback } from "react";
 import { getCurrencySymbol, getAllCurrencies } from "../../constants/currencies";
 
+
 // ==============================
 // IKON INCOME
 // ==============================
@@ -46,6 +47,7 @@ import {
   Shirt,
   Package,
 } from "lucide-react-native";
+import FloatingScanButton from "@/components/FloatingScanButton";
 
 const incomeIconMap: any = {
   Gaji: <BriefcaseBusiness color="#74C1FF" size={22} />,
@@ -913,7 +915,9 @@ export default function Home() {
           </View>
         </TouchableOpacity>
       </Modal>
+      <FloatingScanButton />
     </View>
+    
   );
 }
 
