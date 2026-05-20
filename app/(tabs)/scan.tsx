@@ -25,6 +25,8 @@ import {
 
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
+import { File as ExpoFile } from "expo-file-system";
+import Constants from "expo-constants";
 
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
@@ -32,6 +34,31 @@ import { router } from "expo-router";
 import { scanReceiptOCR } from "../../lib/ocr";
 
 const { width } = Dimensions.get("window");
+
+const AI_BACKEND_PORT = "3001";
+
+const getAIBackendBaseUrl = () => {
+  const hostUri =
+    Constants.expoConfig?.hostUri ||
+    (Constants as any).manifest?.debuggerHost ||
+    (Constants as any).manifest2?.extra?.expoGo?.debuggerHost ||
+    "";
+
+  const host = hostUri
+    .replace("exp://", "")
+    .replace("http://", "")
+    .replace("https://", "")
+    .split(":")[0];
+
+  if (host) {
+    return `http://${host}:${AI_BACKEND_PORT}`;
+  }
+
+  return `http://localhost:${AI_BACKEND_PORT}`;
+};
+
+const AI_API_BASE_URL = getAIBackendBaseUrl();
+
 
 type ReceiptItem = {
   name: string;
@@ -44,6 +71,8 @@ type ReceiptItem = {
 
 type ReceiptData = {
   merchant: string;
+  date: string;
+  time: string;
   items: ReceiptItem[];
   subtotal: number;
   totalDiscount: number;
@@ -52,6 +81,8 @@ type ReceiptData = {
   change: number;
   saved: number;
   tax: number;
+  serviceCharge: number;
+  paymentMethod: string;
   rawText: string;
 };
 
@@ -70,10 +101,6 @@ export default function ScanPage() {
   const [ocrText, setOcrText] =
     useState("");
 
-  // ======================
-  // ANIMATION
-  // ======================
-
   const scanAnim = useRef(
     new Animated.Value(0)
   ).current;
@@ -86,7 +113,6 @@ export default function ScanPage() {
           duration: 1800,
           useNativeDriver: true,
         }),
-
         Animated.timing(scanAnim, {
           toValue: 0,
           duration: 1800,
@@ -94,7 +120,7 @@ export default function ScanPage() {
         }),
       ])
     ).start();
-  }, []);
+  }, [scanAnim]);
 
   // ======================
   // OCR NORMALIZER
@@ -106,20 +132,32 @@ export default function ScanPage() {
       .replace(/[“”]/g, '"')
       .replace(/[‘’]/g, "'")
       .replace(/[|]/g, "I")
+      .replace(/[¥]/g, "Y")
+      .replace(/\bR[Pp]\b/g, "Rp")
+      .replace(/\bRPM\b/gi, "RP")
+      .replace(/\b1DR\b/gi, "IDR")
       .replace(/\bTUTAL\b/gi, "TOTAL")
       .replace(/\bT0TAL\b/gi, "TOTAL")
       .replace(/\bTOTAI\b/gi, "TOTAL")
+      .replace(/\bT0TAI\b/gi, "TOTAL")
+      .replace(/\bSUB T0TAL\b/gi, "SUBTOTAL")
+      .replace(/\bSUB-TOTAL\b/gi, "SUBTOTAL")
       .replace(/\bTUNAT\b/gi, "TUNAI")
       .replace(/\bTUNA1\b/gi, "TUNAI")
+      .replace(/\bTUNAL\b/gi, "TUNAI")
+      .replace(/\bKEMGALI\b/gi, "KEMBALI")
       .replace(/\bKEMGALT\b/gi, "KEMBALI")
       .replace(/\bKEMBALT\b/gi, "KEMBALI")
       .replace(/\bKEMBAL1\b/gi, "KEMBALI")
-      .replace(/\bHARGA JUAL\b/gi, "HARGA JUAL")
+      .replace(/\bKEMBALl\b/gi, "KEMBALI")
       .replace(/\bHARCA JUAL\b/gi, "HARGA JUAL")
       .replace(/\bDISK0N\b/gi, "DISKON")
       .replace(/\bDISC\b/gi, "DISKON")
+      .replace(/\bD1SC\b/gi, "DISKON")
+      .replace(/\bP0TONGAN\b/gi, "POTONGAN")
       .replace(/\bPPM\b/gi, "PPN")
-      .replace(/\bRPM\b/gi, "RP");
+      .replace(/\bPAJ4K\b/gi, "PAJAK")
+      .replace(/\bQTY\b/gi, "QTY");
   };
 
   const normalizeLine = (line: string) => {
@@ -145,12 +183,33 @@ export default function ScanPage() {
     if (!value) return 0;
 
     const isNegative =
-      value.includes("(") || value.includes("-");
+      value.includes("(") ||
+      value.includes("-");
 
-    const cleaned = value
+    let cleaned = value
       .replace(/Rp/gi, "")
-      .replace(/[^\d.,]/g, "")
-      .replace(/[.,]/g, "");
+      .replace(/IDR/gi, "")
+      .replace(/[^\d.,]/g, "");
+
+    if (!cleaned) return 0;
+
+    const hasThousandSeparator =
+      /[.,]\d{3}/.test(cleaned);
+
+    const hasDecimalEnding =
+      /[.,]\d{2}$/.test(cleaned);
+
+    if (
+      hasThousandSeparator &&
+      hasDecimalEnding
+    ) {
+      cleaned = cleaned.replace(
+        /[.,]\d{2}$/,
+        ""
+      );
+    }
+
+    cleaned = cleaned.replace(/[.,]/g, "");
 
     const number = Number(cleaned);
 
@@ -159,11 +218,19 @@ export default function ScanPage() {
     return isNegative ? -number : number;
   };
 
-  const getMoneyValuesFromLine = (line: string) => {
-    const matches =
-      line.match(/\(?-?\d{1,3}(?:[.,]\d{3})+\)?|\(?-?\d{4,}\)?/g) || [];
+  const moneyRegex =
+    /(?:Rp|IDR)?\s*\(?-?\d{1,3}(?:[.,]\d{3})+(?:[.,]\d{2})?\)?|(?:Rp|IDR)?\s*\(?-?\d{4,}(?:[.,]\d{2})?\)?/gi;
 
-    return matches
+  const getMoneyMatchesFromLine = (
+    line: string
+  ) => {
+    return line.match(moneyRegex) || [];
+  };
+
+  const getMoneyValuesFromLine = (
+    line: string
+  ) => {
+    return getMoneyMatchesFromLine(line)
       .map(parseMoney)
       .filter((value) => value !== 0);
   };
@@ -171,40 +238,141 @@ export default function ScanPage() {
   const isAmount = (amount: number) => {
     const absolute = Math.abs(amount);
 
-    return absolute >= 1 && absolute <= 10000000;
+    return (
+      absolute >= 1 &&
+      absolute <= 100000000
+    );
+  };
+
+  const formatRupiah = (amount: number) => {
+    return new Intl.NumberFormat("id-ID", {
+      style: "currency",
+      currency: "IDR",
+      minimumFractionDigits: 0,
+    }).format(Math.abs(amount || 0));
+  };
+
+  // ======================
+  // LINE CHECKER
+  // ======================
+
+  const isSeparatorLine = (line: string) => {
+    return /^[-=_*]{4,}$/.test(
+      line.replace(/\s/g, "")
+    );
+  };
+
+  const isSummaryLine = (line: string) => {
+    const upper = line.toUpperCase();
+
+    return /SUBTOTAL|SUB TOTAL|TOTAL|GRAND TOTAL|HARGA JUAL|TUNAI|CASH|BAYAR|DIBAYAR|KEMBALI|KEMBALIAN|CHANGE|DISKON TOTAL|POTONGAN TOTAL|ANDA HEMAT|HEMAT|PPN|PAJAK|TAX|SERVICE|LAYANAN|ADMIN|ROUNDING|PEMBULATAN/.test(
+      upper
+    );
+  };
+
+  const isHardStopLine = (line: string) => {
+    const upper = line.toUpperCase();
+
+    return /SUBTOTAL|SUB TOTAL|GRAND TOTAL|TOTAL BELANJA|TOTAL BAYAR|TOTAL HARGA|HARGA JUAL|PEMBAYARAN|TUNAI|CASH|KEMBALI|KEMBALIAN/.test(
+      upper
+    );
+  };
+
+  const isHeaderLine = (line: string) => {
+    const upper = line.toUpperCase();
+
+    return /NO\.|ORDER|STRUK|RECEIPT|INVOICE|NOTA|KASIR|CASHIER|CUSTOMER|MEMBER|POINT|POIN|NPWP|TELP|PHONE|CALL|EMAIL|WWW|HTTP|JL\.|JALAN|RUKO|RT\.|RW\.|TOKO|CABANG|STORE|OUTLET|INDOMARET|ALFAMART|ALFAMIDI|POINT COFFEE|LAWSON|SUPERINDO|HYPERMART|ALFAGIFT|TERIMA KASIH|THANK YOU|SELAMAT|PROMO|VOUCHER|KU PON|KUPON/.test(
+      upper
+    );
+  };
+
+  const isPossibleItemName = (
+    value: string
+  ) => {
+    const text = value.trim();
+
+    if (text.length < 2) return false;
+    if (!/[A-Za-z]/.test(text)) return false;
+    if (isSeparatorLine(text)) return false;
+    if (isSummaryLine(text)) return false;
+    if (isHeaderLine(text)) return false;
+
+    return true;
+  };
+
+  const cleanItemName = (name: string) => {
+    return name
+      .replace(/^\d+\s*[.)-]?\s*/, "")
+      .replace(/\bRp\b/gi, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  };
+
+  // ======================
+  // LABEL PARSER
+  // ======================
+
+  const lineHasAny = (
+    line: string,
+    labels: string[]
+  ) => {
+    const upper = line.toUpperCase();
+
+    return labels.some((label) =>
+      upper.includes(label.toUpperCase())
+    );
   };
 
   const findAmountByLabel = (
     lines: string[],
-    labels: string[]
+    labels: string[],
+    excludeLabels: string[] = []
   ) => {
     for (let i = 0; i < lines.length; i++) {
-      const upperLine = lines[i].toUpperCase();
+      const upper = lines[i].toUpperCase();
 
       const hasLabel = labels.some((label) =>
-        upperLine.includes(label)
+        upper.includes(label.toUpperCase())
       );
 
-      if (!hasLabel) continue;
+      const hasExclude =
+        excludeLabels.length > 0 &&
+        excludeLabels.some((label) =>
+          upper.includes(label.toUpperCase())
+        );
+
+      if (!hasLabel || hasExclude) continue;
 
       const sameLineAmounts =
-        getMoneyValuesFromLine(lines[i]).filter(isAmount);
+        getMoneyValuesFromLine(lines[i]).filter(
+          isAmount
+        );
 
       if (sameLineAmounts.length > 0) {
         return Math.abs(
-          sameLineAmounts[sameLineAmounts.length - 1]
+          sameLineAmounts[
+            sameLineAmounts.length - 1
+          ]
         );
       }
 
-      for (let next = i + 1; next <= i + 2; next++) {
+      for (
+        let next = i + 1;
+        next <= i + 2;
+        next++
+      ) {
         if (!lines[next]) continue;
 
         const nextAmounts =
-          getMoneyValuesFromLine(lines[next]).filter(isAmount);
+          getMoneyValuesFromLine(
+            lines[next]
+          ).filter(isAmount);
 
         if (nextAmounts.length > 0) {
           return Math.abs(
-            nextAmounts[nextAmounts.length - 1]
+            nextAmounts[
+              nextAmounts.length - 1
+            ]
           );
         }
       }
@@ -213,118 +381,423 @@ export default function ScanPage() {
     return 0;
   };
 
-  const findDiscountByLabel = (
+  const sumAmountsByLabel = (
     lines: string[],
     labels: string[]
   ) => {
+    let total = 0;
+
     for (const line of lines) {
-      const upperLine = line.toUpperCase();
-
-      const hasLabel = labels.some((label) =>
-        upperLine.includes(label)
-      );
-
-      if (!hasLabel) continue;
+      if (!lineHasAny(line, labels)) continue;
 
       const amounts =
-        getMoneyValuesFromLine(line).filter(isAmount);
+        getMoneyValuesFromLine(line).filter(
+          isAmount
+        );
 
       if (amounts.length > 0) {
-        return Math.abs(amounts[amounts.length - 1]);
+        total += Math.abs(
+          amounts[amounts.length - 1]
+        );
       }
     }
 
-    return 0;
+    return total;
+  };
+
+  // ======================
+  // DATE & PAYMENT PARSER
+  // ======================
+
+  const parseDateTime = (lines: string[]) => {
+    let date = "";
+    let time = "";
+
+    for (const line of lines) {
+      const dateMatch = line.match(
+        /\b(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\b/
+      );
+
+      const timeMatch = line.match(
+        /\b(\d{1,2}:\d{2}(?::\d{2})?)\b/
+      );
+
+      if (!date && dateMatch) {
+        date = dateMatch[1];
+      }
+
+      if (!time && timeMatch) {
+        time = timeMatch[1];
+      }
+
+      if (date && time) break;
+    }
+
+    return { date, time };
+  };
+
+  const parsePaymentMethod = (
+    lines: string[]
+  ) => {
+    const joined = lines
+      .join(" ")
+      .toUpperCase();
+
+    if (/QRIS|QR CODE/.test(joined)) {
+      return "QRIS";
+    }
+
+    if (/DEBIT|KARTU DEBIT|ATM/.test(joined)) {
+      return "Debit";
+    }
+
+    if (/CREDIT|KREDIT|VISA|MASTERCARD/.test(joined)) {
+      return "Kartu Kredit";
+    }
+
+    if (/GOPAY|OVO|DANA|SHOPEEPAY|LINKAJA/.test(joined)) {
+      return "E-Wallet";
+    }
+
+    if (/TUNAI|CASH/.test(joined)) {
+      return "Tunai";
+    }
+
+    return "Tidak diketahui";
+  };
+
+  // ======================
+  // MERCHANT PARSER
+  // ======================
+
+  const parseMerchant = (
+    lines: string[]
+  ) => {
+    const knownMerchantLine = lines.find(
+      (line) =>
+        /INDOMARET|ALFAMART|ALFAMIDI|POINT COFFEE|LAWSON|SUPERINDO|HYPERMART|TRANSMART|CARREFOUR|MCD|KFC|RICHEESE|MIXUE|JANJI JIWA|CHATIME|KOPI KENANGAN/i.test(
+          line
+        )
+    );
+
+    if (knownMerchantLine) {
+      return knownMerchantLine;
+    }
+
+    const firstReadableLine = lines.find(
+      (line) => {
+        if (isSeparatorLine(line)) return false;
+        if (/^\d/.test(line)) return false;
+        if (isSummaryLine(line)) return false;
+        if (/Rp|IDR/i.test(line)) return false;
+        if (line.length < 3) return false;
+
+        return true;
+      }
+    );
+
+    return firstReadableLine || "Struk Belanja";
   };
 
   // ======================
   // ITEM PARSER
   // ======================
 
-  const isSeparatorLine = (line: string) => {
-    return /^[-=_]{4,}$/.test(
-      line.replace(/\s/g, "")
-    );
-  };
-
-  const isSummaryLine = (line: string) => {
-    const upperLine = line.toUpperCase();
-
-    return /HARGA JUAL|SUBTOTAL|TOTAL|TUNAI|KEMBALI|ANDA HEMAT|PPN|DPP|TERIMA KASIH|LAYANAN|CALL|EMAIL|PROMO|WWW/.test(
-      upperLine
-    );
-  };
-
-  const isHeaderLine = (line: string) => {
-    const upperLine = line.toUpperCase();
-
-    return /NO\.|ORDER|POINT|COFFEE|INDOMARET|ALFAMART|JL\.|JALAN|KM\.|SUMEDANG|SURABAYA|PRICI|TIKL|^\d{2}[./-]\d{2}[./-]\d{2}/.test(
-      upperLine
-    );
-  };
-
-  const parseItemLine = (
-    line: string
+  const makeItem = (
+    name: string,
+    qty: number,
+    price: number,
+    total?: number
   ): ReceiptItem | null => {
-    if (
-      !line ||
-      isSeparatorLine(line) ||
-      isSummaryLine(line) ||
-      isHeaderLine(line)
-    ) {
+    const cleanName = cleanItemName(name);
+    const safeQty =
+      Number.isFinite(qty) && qty > 0
+        ? qty
+        : 1;
+
+    const safePrice = Math.abs(price || 0);
+    const calculatedTotal =
+      safeQty * safePrice;
+
+    const safeTotal =
+      total && total > 0
+        ? Math.abs(total)
+        : calculatedTotal;
+
+    if (!isPossibleItemName(cleanName)) {
       return null;
     }
 
-    const normalized = normalizeLine(line);
-
-    const itemMatch = normalized.match(
-      /^(.+?)\s+(\d{1,3})\s+(\d{1,3}(?:[.,]\d{3})*|\d+)\s+(\d{1,3}(?:[.,]\d{3})*|\d+)$/
-    );
-
-    if (!itemMatch) return null;
-
-    const name = itemMatch[1]
-      .replace(/\s+/g, " ")
-      .trim();
-
-    const qty = Number(itemMatch[2]);
-    const price = Math.abs(parseMoney(itemMatch[3]));
-    const total = Math.abs(parseMoney(itemMatch[4]));
-
-    if (!name || !qty || !price) return null;
-
-    const calculatedTotal = qty * price;
-
-    const safeTotal =
-      total > 0 ? total : calculatedTotal;
+    if (safePrice <= 0 && safeTotal <= 0) {
+      return null;
+    }
 
     return {
-      name,
-      qty,
-      price,
+      name: cleanName,
+      qty: safeQty,
+      price:
+        safePrice > 0
+          ? safePrice
+          : safeTotal / safeQty,
       total: safeTotal,
       discount: 0,
       finalTotal: safeTotal,
     };
   };
 
-  const parseReceiptItems = (lines: string[]) => {
-    const items: ReceiptItem[] = [];
+  const parseItemLine = (
+    line: string
+  ): ReceiptItem | null => {
+    const normalized = normalizeLine(line);
+
+    if (!normalized) return null;
+    if (isSeparatorLine(normalized)) return null;
+    if (isSummaryLine(normalized)) return null;
+    if (isHeaderLine(normalized)) return null;
+
+    const upper = normalized.toUpperCase();
+
+    if (/DISKON|POTONGAN|VOUCHER|PROMO/.test(upper)) {
+      return null;
+    }
+
+    const moneyMatches =
+      getMoneyMatchesFromLine(normalized);
+
+    if (moneyMatches.length === 0) {
+      return null;
+    }
+
+    // Format:
+    // Nama Barang 2 x 5.000 10.000
+    const qtyXPriceTotal = normalized.match(
+      /^(.+?)\s+(\d+(?:[.,]\d+)?)\s*[xX*]\s*(?:Rp|IDR)?\s*(\d{1,3}(?:[.,]\d{3})+|\d{4,})\s+(?:Rp|IDR)?\s*(\d{1,3}(?:[.,]\d{3})+|\d{4,})$/
+    );
+
+    if (qtyXPriceTotal) {
+      return makeItem(
+        qtyXPriceTotal[1],
+        Number(
+          qtyXPriceTotal[2].replace(",", ".")
+        ),
+        parseMoney(qtyXPriceTotal[3]),
+        parseMoney(qtyXPriceTotal[4])
+      );
+    }
+
+    // Format:
+    // Nama Barang 2 5.000 10.000
+    const qtyPriceTotal = normalized.match(
+      /^(.+?)\s+(\d{1,3})\s+(?:Rp|IDR)?\s*(\d{1,3}(?:[.,]\d{3})+|\d{4,})\s+(?:Rp|IDR)?\s*(\d{1,3}(?:[.,]\d{3})+|\d{4,})$/
+    );
+
+    if (qtyPriceTotal) {
+      const qty = Number(qtyPriceTotal[2]);
+      const price = parseMoney(
+        qtyPriceTotal[3]
+      );
+      const total = parseMoney(
+        qtyPriceTotal[4]
+      );
+
+      if (
+        qty > 0 &&
+        qty <= 999 &&
+        Math.abs(total - qty * price) <=
+          Math.max(1000, price)
+      ) {
+        return makeItem(
+          qtyPriceTotal[1],
+          qty,
+          price,
+          total
+        );
+      }
+    }
+
+    // Format:
+    // Nama Barang @5.000 2 10.000
+    const atPriceQtyTotal = normalized.match(
+      /^(.+?)\s+@?\s*(?:Rp|IDR)?\s*(\d{1,3}(?:[.,]\d{3})+|\d{4,})\s+(\d{1,3})\s+(?:Rp|IDR)?\s*(\d{1,3}(?:[.,]\d{3})+|\d{4,})$/
+    );
+
+    if (atPriceQtyTotal) {
+      return makeItem(
+        atPriceQtyTotal[1],
+        Number(atPriceQtyTotal[3]),
+        parseMoney(atPriceQtyTotal[2]),
+        parseMoney(atPriceQtyTotal[4])
+      );
+    }
+
+    // Format:
+    // Nama Barang 5.000
+    if (moneyMatches.length === 1) {
+      const firstMatch = moneyMatches[0];
+
+      if (!firstMatch) {
+        return null;
+      }
+
+      const amount = parseMoney(firstMatch);
+
+      const name = normalized
+        .replace(firstMatch, "")
+        .trim();
+
+      if (amount > 0) {
+        return makeItem(name, 1, amount, amount);
+      }
+    }
+
+    // Format umum:
+    // Nama Barang 5.000 10.000
+    // dianggap qty 1, harga terakhir sebagai total.
+    if (moneyMatches.length >= 2) {
+  const firstMatch = moneyMatches[0];
+  const lastMatch =
+    moneyMatches[moneyMatches.length - 1];
+
+  if (!firstMatch || !lastMatch) {
+    return null;
+  }
+
+  const firstAmount = parseMoney(firstMatch);
+  const lastAmount = parseMoney(lastMatch);
+
+  const firstIndex =
+    normalized.indexOf(firstMatch);
+
+  const name =
+    firstIndex >= 0
+      ? normalized.slice(0, firstIndex).trim()
+      : normalized
+          .replace(firstMatch, "")
+          .trim();
+
+  return makeItem(
+    name,
+    1,
+    firstAmount,
+    lastAmount
+  );
+}
+
+    return null;
+  };
+
+  const parsePendingNameWithAmountLine = (
+    nameLine: string,
+    amountLine: string
+  ) => {
+    const normalized =
+      normalizeLine(amountLine);
+
+    // Format:
+    // 2 x 5.000 10.000
+    const qtyXPriceTotal = normalized.match(
+      /^(\d+(?:[.,]\d+)?)\s*[xX*]\s*(?:Rp|IDR)?\s*(\d{1,3}(?:[.,]\d{3})+|\d{4,})\s+(?:Rp|IDR)?\s*(\d{1,3}(?:[.,]\d{3})+|\d{4,})$/
+    );
+
+    if (qtyXPriceTotal) {
+      return makeItem(
+        nameLine,
+        Number(
+          qtyXPriceTotal[1].replace(",", ".")
+        ),
+        parseMoney(qtyXPriceTotal[2]),
+        parseMoney(qtyXPriceTotal[3])
+      );
+    }
+
+    // Format:
+    // 5.000
+    const amounts =
+      getMoneyValuesFromLine(normalized).filter(
+        isAmount
+      );
+
+    if (amounts.length === 1) {
+      return makeItem(
+        nameLine,
+        1,
+        Math.abs(amounts[0]),
+        Math.abs(amounts[0])
+      );
+    }
+
+    if (amounts.length >= 2) {
+      const qtyMatch = normalized.match(
+        /^(\d{1,3})\s+/
+      );
+
+      const qty = qtyMatch
+        ? Number(qtyMatch[1])
+        : 1;
+
+      const price =
+        amounts.length >= 2
+          ? Math.abs(amounts[0])
+          : Math.abs(amounts[amounts.length - 1]);
+
+      const total = Math.abs(
+        amounts[amounts.length - 1]
+      );
+
+      return makeItem(
+        nameLine,
+        qty,
+        price,
+        total
+      );
+    }
+
+    return null;
+  };
+
+  const applyDiscountToLastItem = (
+    items: ReceiptItem[],
+    discount: number
+  ) => {
+    if (items.length === 0) return items;
+
+    const lastIndex = items.length - 1;
+    const lastItem = items[lastIndex];
+
+    const updated: ReceiptItem = {
+      ...lastItem,
+      discount:
+        lastItem.discount + Math.abs(discount),
+      finalTotal: Math.max(
+        lastItem.finalTotal - Math.abs(discount),
+        0
+      ),
+    };
+
+    const clone = [...items];
+    clone[lastIndex] = updated;
+
+    return clone;
+  };
+
+  const parseReceiptItems = (
+    lines: string[]
+  ) => {
+    let items: ReceiptItem[] = [];
+    let pendingName = "";
     let reachedSummary = false;
 
     for (const line of lines) {
-      const upperLine = line.toUpperCase();
+      const upper = line.toUpperCase();
 
-      if (
-        /HARGA JUAL|SUBTOTAL|TOTAL/.test(
-          upperLine
-        )
-      ) {
+      if (isHardStopLine(line)) {
         reachedSummary = true;
       }
 
       const isDiscountLine =
-        /DISKON|POTONGAN/.test(upperLine);
+        /DISKON|POTONGAN|VOUCHER|PROMO/.test(
+          upper
+        );
 
       if (
         isDiscountLine &&
@@ -332,25 +805,17 @@ export default function ScanPage() {
         items.length > 0
       ) {
         const amounts =
-          getMoneyValuesFromLine(line).filter(isAmount);
-
-        if (amounts.length > 0) {
-          const discount = Math.abs(
-            amounts[amounts.length - 1]
+          getMoneyValuesFromLine(line).filter(
+            isAmount
           );
 
-          const lastIndex = items.length - 1;
-          const lastItem = items[lastIndex];
-
-          items[lastIndex] = {
-            ...lastItem,
-            discount:
-              lastItem.discount + discount,
-            finalTotal: Math.max(
-              lastItem.finalTotal - discount,
-              0
-            ),
-          };
+        if (amounts.length > 0) {
+          items = applyDiscountToLastItem(
+            items,
+            Math.abs(
+              amounts[amounts.length - 1]
+            )
+          );
         }
 
         continue;
@@ -358,40 +823,40 @@ export default function ScanPage() {
 
       if (reachedSummary) continue;
 
-      const item = parseItemLine(line);
+      const directItem = parseItemLine(line);
 
-      if (item) {
-        items.push(item);
+      if (directItem) {
+        items.push(directItem);
+        pendingName = "";
+        continue;
+      }
+
+      if (
+        pendingName &&
+        getMoneyMatchesFromLine(line).length > 0
+      ) {
+        const pendingItem =
+          parsePendingNameWithAmountLine(
+            pendingName,
+            line
+          );
+
+        if (pendingItem) {
+          items.push(pendingItem);
+          pendingName = "";
+          continue;
+        }
+      }
+
+      if (
+        isPossibleItemName(line) &&
+        getMoneyMatchesFromLine(line).length === 0
+      ) {
+        pendingName = line;
       }
     }
 
     return items;
-  };
-
-  // ======================
-  // MERCHANT PARSER
-  // ======================
-
-  const parseMerchant = (lines: string[]) => {
-    const knownMerchantLine = lines.find((line) =>
-      /INDOMARET|ALFAMART|POINT COFFEE|LAWSON|ALFAMIDI|SUPERINDO|HYPERMART/i.test(
-        line
-      )
-    );
-
-    if (knownMerchantLine) {
-      return knownMerchantLine;
-    }
-
-    const firstReadableLine = lines.find((line) => {
-      if (isSeparatorLine(line)) return false;
-      if (/^\d/.test(line)) return false;
-      if (isSummaryLine(line)) return false;
-
-      return line.length >= 3;
-    });
-
-    return firstReadableLine || "Struk Belanja";
   };
 
   // ======================
@@ -408,27 +873,54 @@ export default function ScanPage() {
 
     const items = parseReceiptItems(lines);
 
+    const { date, time } =
+      parseDateTime(lines);
+
     const subtotalByLabel = findAmountByLabel(
       lines,
       [
-        "HARGA JUAL",
         "SUBTOTAL",
-        "JUMLAH",
+        "SUB TOTAL",
+        "HARGA JUAL",
         "TOTAL HARGA",
+        "JUMLAH",
+      ],
+      [
+        "DISKON",
+        "POTONGAN",
+        "KEMBALI",
+        "TUNAI",
+        "CASH",
       ]
     );
 
-    const totalByLabel = findAmountByLabel(lines, [
-      "TOTAL",
-      "GRAND TOTAL",
-      "TAGIHAN",
-    ]);
+    const totalByLabel = findAmountByLabel(
+      lines,
+      [
+        "GRAND TOTAL",
+        "TOTAL BAYAR",
+        "TOTAL BELANJA",
+        "TOTAL",
+        "TAGIHAN",
+      ],
+      [
+        "SUBTOTAL",
+        "SUB TOTAL",
+        "DISKON",
+        "POTONGAN",
+        "KEMBALI",
+        "KEMBALIAN",
+        "QTY",
+        "ITEM",
+      ]
+    );
 
     const cash = findAmountByLabel(lines, [
       "TUNAI",
       "CASH",
       "BAYAR",
       "DIBAYAR",
+      "JUMLAH BAYAR",
     ]);
 
     let change = findAmountByLabel(lines, [
@@ -445,18 +937,31 @@ export default function ScanPage() {
     const tax = findAmountByLabel(lines, [
       "PPN",
       "PAJAK",
+      "TAX",
     ]);
 
-    const globalDiscount =
-      findDiscountByLabel(lines, [
-        "DISKON FRISIAN",
-        "DISKON FLAG",
+    const serviceCharge =
+      findAmountByLabel(lines, [
+        "SERVICE",
+        "LAYANAN",
+        "ADMIN",
+      ]);
+
+    const summaryDiscount =
+      sumAmountsByLabel(lines, [
         "DISKON TOTAL",
-        "POTONGAN",
+        "TOTAL DISKON",
+        "POTONGAN TOTAL",
+        "VOUCHER",
       ]);
 
     const itemGrossTotal = items.reduce(
       (sum, item) => sum + item.total,
+      0
+    );
+
+    const itemFinalTotal = items.reduce(
+      (sum, item) => sum + item.finalTotal,
       0
     );
 
@@ -469,20 +974,23 @@ export default function ScanPage() {
       subtotalByLabel || itemGrossTotal;
 
     const totalDiscount =
-      globalDiscount || itemDiscountTotal || saved;
+      summaryDiscount ||
+      itemDiscountTotal ||
+      saved ||
+      Math.max(subtotal - totalByLabel, 0);
 
     const calculatedTotal = Math.max(
-      subtotal - totalDiscount,
+      subtotal -
+        totalDiscount +
+        tax +
+        serviceCharge,
       0
     );
 
     const total =
       totalByLabel ||
-      calculatedTotal ||
-      items.reduce(
-        (sum, item) => sum + item.finalTotal,
-        0
-      );
+      itemFinalTotal ||
+      calculatedTotal;
 
     if (
       !change &&
@@ -495,6 +1003,8 @@ export default function ScanPage() {
 
     return {
       merchant: parseMerchant(lines),
+      date,
+      time,
       items,
       subtotal,
       totalDiscount,
@@ -503,16 +1013,10 @@ export default function ScanPage() {
       change,
       saved,
       tax,
+      serviceCharge,
+      paymentMethod: parsePaymentMethod(lines),
       rawText: cleanedText,
     };
-  };
-
-  const formatRupiah = (amount: number) => {
-    return new Intl.NumberFormat("id-ID", {
-      style: "currency",
-      currency: "IDR",
-      minimumFractionDigits: 0,
-    }).format(amount);
   };
 
   const buildReceiptNote = (
@@ -523,14 +1027,14 @@ export default function ScanPage() {
         ? receipt.items.map((item, index) => {
             const discountText =
               item.discount > 0
-                ? `, Diskon: ${formatRupiah(
+                ? ` | Diskon: ${formatRupiah(
                     item.discount
                   )}`
                 : "";
 
-            return `${index + 1}. ${item.name} | Qty: ${
-              item.qty
-            } | Harga: ${formatRupiah(
+            return `${index + 1}. ${
+              item.name
+            } | Qty: ${item.qty} | Harga: ${formatRupiah(
               item.price
             )} | Total: ${formatRupiah(
               item.finalTotal
@@ -540,32 +1044,284 @@ export default function ScanPage() {
 
     return [
       `Merchant: ${receipt.merchant}`,
+      receipt.date
+        ? `Tanggal: ${receipt.date}`
+        : "",
+      receipt.time
+        ? `Waktu: ${receipt.time}`
+        : "",
+      `Metode Bayar: ${receipt.paymentMethod}`,
       "",
       "BARANG/JASA:",
       ...itemLines,
       "",
       "RINGKASAN:",
-      `Harga Jual: ${formatRupiah(
+      `Subtotal: ${formatRupiah(
         receipt.subtotal
       )}`,
       `Diskon: ${formatRupiah(
         receipt.totalDiscount
       )}`,
+      `Pajak/PPN: ${formatRupiah(
+        receipt.tax
+      )}`,
+      `Biaya Layanan/Admin: ${formatRupiah(
+        receipt.serviceCharge
+      )}`,
       `Total: ${formatRupiah(receipt.total)}`,
-      `Tunai: ${formatRupiah(receipt.cash)}`,
+      `Bayar/Tunai: ${formatRupiah(
+        receipt.cash
+      )}`,
       `Kembalian: ${formatRupiah(
         receipt.change
       )}`,
       `Anda Hemat: ${formatRupiah(
         receipt.saved
       )}`,
-      `PPN/Pajak: ${formatRupiah(
-        receipt.tax
-      )}`,
       "",
       "OCR ASLI:",
       receipt.rawText,
-    ].join("\n");
+    ]
+      .filter((line) => line !== "")
+      .join("\n");
+  };
+
+  // ======================
+  // IMAGE PREPARE
+  // ======================
+
+const MAX_OCR_SIZE = 1450 * 1024; 
+// 1.45 MB, dibuat sedikit di bawah limit 1.5 MB biar aman
+
+const getFileSize = async (uri: string) => {
+  try {
+    const file = new ExpoFile(uri);
+
+    if (!file.exists) {
+      return 0;
+    }
+
+    return file.size || 0;
+  } catch (error) {
+    console.log("GET FILE SIZE ERROR:", error);
+    return 0;
+  }
+};
+
+const prepareImageForOCR = async (uri: string) => {
+  const resizeWidths = [1400, 1200, 1000, 850, 700];
+  const qualities = [0.75, 0.6, 0.45, 0.35, 0.25];
+
+  let finalUri = uri;
+  let finalSize = await getFileSize(uri);
+
+  console.log("ORIGINAL IMAGE SIZE:", finalSize);
+
+  for (const width of resizeWidths) {
+    for (const quality of qualities) {
+      const manipulated =
+        await ImageManipulator.manipulateAsync(
+          uri,
+          [
+            {
+              resize: {
+                width,
+              },
+            },
+          ],
+          {
+            compress: quality,
+            format: ImageManipulator.SaveFormat.JPEG,
+          }
+        );
+
+      const size = await getFileSize(manipulated.uri);
+
+      console.log(
+        `COMPRESSED IMAGE width=${width}, quality=${quality}, size=${size}`
+      );
+
+      finalUri = manipulated.uri;
+      finalSize = size;
+
+      if (size > 0 && size <= MAX_OCR_SIZE) {
+        return manipulated.uri;
+      }
+    }
+  }
+
+  if (finalSize > MAX_OCR_SIZE) {
+    Alert.alert(
+      "Foto Terlalu Besar",
+      "Gambar masih terlalu besar untuk OCR gratis. Coba foto ulang lebih dekat, crop bagian struk saja, atau gunakan gambar yang lebih kecil."
+    );
+  }
+
+  return finalUri;
+};
+
+
+  // ======================
+  // AI EXTRACTOR
+  // ======================
+
+  const normalizeAIReceipt = (
+    data: any,
+    rawText: string
+  ): ReceiptData => {
+    const items = Array.isArray(data?.items)
+      ? data.items
+          .filter((item: any) => item?.name)
+          .map((item: any) => {
+            const qty =
+              Number(item.qty) > 0
+                ? Number(item.qty)
+                : 1;
+
+            const price =
+              Number(item.price) > 0
+                ? Math.round(Number(item.price))
+                : 0;
+
+            const total =
+              Number(item.total) > 0
+                ? Math.round(Number(item.total))
+                : Math.round(qty * price);
+
+            const discount =
+              Number(item.discount) > 0
+                ? Math.round(Number(item.discount))
+                : 0;
+
+            const finalTotal =
+              Number(item.finalTotal) > 0
+                ? Math.round(Number(item.finalTotal))
+                : Math.max(total - discount, 0);
+
+            return {
+              name: String(item.name).trim(),
+              qty,
+              price,
+              total,
+              discount,
+              finalTotal,
+            };
+          })
+      : [];
+
+    const subtotal =
+      Number(data?.subtotal) > 0
+        ? Math.round(Number(data.subtotal))
+        : items.reduce(
+            (sum: number, item: ReceiptItem) =>
+              sum + item.total,
+            0
+          );
+
+    const totalDiscount =
+      Number(data?.totalDiscount) > 0
+        ? Math.round(Number(data.totalDiscount))
+        : items.reduce(
+            (sum: number, item: ReceiptItem) =>
+              sum + item.discount,
+            0
+          );
+
+    const tax =
+      Number(data?.tax) > 0
+        ? Math.round(Number(data.tax))
+        : 0;
+
+    const serviceCharge =
+      Number(data?.serviceCharge) > 0
+        ? Math.round(Number(data.serviceCharge))
+        : 0;
+
+    const total =
+      Number(data?.total) > 0
+        ? Math.round(Number(data.total))
+        : Math.max(
+            subtotal -
+              totalDiscount +
+              tax +
+              serviceCharge,
+            0
+          );
+
+    const cash =
+      Number(data?.cash) > 0
+        ? Math.round(Number(data.cash))
+        : 0;
+
+    const change =
+      Number(data?.change) > 0
+        ? Math.round(Number(data.change))
+        : cash >= total
+          ? cash - total
+          : 0;
+
+    return {
+      merchant:
+        String(data?.merchant || "").trim() ||
+        "Struk Belanja",
+      date: String(data?.date || "").trim(),
+      time: String(data?.time || "").trim(),
+      items,
+      subtotal,
+      totalDiscount,
+      total,
+      cash,
+      change,
+      saved:
+        Number(data?.saved) > 0
+          ? Math.round(Number(data.saved))
+          : 0,
+      tax,
+      serviceCharge,
+      paymentMethod:
+        String(data?.paymentMethod || "").trim() ||
+        "Tidak diketahui",
+      rawText,
+    };
+  };
+
+  const extractReceiptWithAI = async (
+    rawOcrText: string
+  ): Promise<ReceiptData | null> => {
+    try {
+      console.log(
+        "AI BACKEND URL:",
+        AI_API_BASE_URL
+      );
+
+      const response = await fetch(
+        `${AI_API_BASE_URL}/api/receipt-ai/extract`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            ocrText: rawOcrText,
+          }),
+        }
+      );
+
+      const json = await response.json();
+
+      if (!response.ok || !json.success) {
+        console.log("AI BACKEND ERROR:", json);
+        return null;
+      }
+
+      return normalizeAIReceipt(
+        json.data,
+        rawOcrText
+      );
+    } catch (error) {
+      console.log("AI FETCH ERROR:", error);
+      return null;
+    }
   };
 
   // ======================
@@ -578,40 +1334,44 @@ export default function ScanPage() {
     try {
       setLoading(true);
 
-      console.log(
-        "IMAGE URI:",
-        imageUri
-      );
-
       const text =
-        await scanReceiptOCR(
-          imageUri
-        );
-
-      console.log(
-        "OCR RESULT:",
-        text
-      );
-
-      setLoading(false);
+        await scanReceiptOCR(imageUri);
 
       if (!text || text.trim() === "") {
+        setLoading(false);
+
         Alert.alert(
           "Gagal",
-          "Teks tidak ditemukan"
+          "Teks pada struk tidak ditemukan. Pastikan foto terang, tidak blur, dan seluruh struk terlihat."
         );
 
         return;
       }
 
-      const receipt = parseReceipt(text);
+      const aiReceipt =
+        await extractReceiptWithAI(text);
 
-      console.log(
-        "PARSED RECEIPT:",
-        receipt
-      );
+      const receipt =
+        aiReceipt || parseReceipt(text);
 
       setOcrText(receipt.rawText);
+
+      const hasResult =
+        receipt.total > 0 ||
+        receipt.items.length > 0;
+
+      if (!hasResult) {
+        setLoading(false);
+
+        Alert.alert(
+          "Struk Terbaca",
+          "Teks berhasil dibaca, tapi data total/barang belum terdeteksi jelas. Coba foto ulang lebih dekat dan terang."
+        );
+
+        return;
+      }
+
+      setLoading(false);
 
       router.push({
         pathname: "/resultscan",
@@ -625,25 +1385,30 @@ export default function ScanPage() {
           change: receipt.change.toString(),
           saved: receipt.saved.toString(),
           tax: receipt.tax.toString(),
+          serviceCharge:
+            receipt.serviceCharge.toString(),
           merchant: receipt.merchant,
+          date: receipt.date,
+          time: receipt.time,
+          paymentMethod:
+            receipt.paymentMethod,
           items: JSON.stringify(receipt.items),
           note: buildReceiptNote(receipt),
           rawText: receipt.rawText,
           type: "expense",
           fromScan: "true",
+          extractMode:
+            aiReceipt ? "ai" : "parser",
         },
       });
     } catch (error) {
       setLoading(false);
 
-      console.log(
-        "OCR ERROR:",
-        error
-      );
+      console.log("OCR ERROR:", error);
 
       Alert.alert(
         "Error",
-        "Gagal scan struk"
+        "Gagal scan struk. Coba ulangi lagi dengan foto yang lebih jelas."
       );
     }
   };
@@ -660,7 +1425,7 @@ export default function ScanPage() {
       if (!permissionResult.granted) {
         Alert.alert(
           "Izin Ditolak",
-          "Izin galeri diperlukan"
+          "Izin galeri diperlukan untuk memilih foto struk."
         );
 
         return;
@@ -672,40 +1437,28 @@ export default function ScanPage() {
             mediaTypes:
               ImagePicker.MediaTypeOptions
                 .Images,
-
             allowsEditing: true,
-
             quality: 1,
           }
         );
 
       if (result.canceled) return;
 
-      const image =
-        result.assets[0];
+      const image = result.assets[0];
 
-      const manipulated =
-        await ImageManipulator.manipulateAsync(
-          image.uri,
-          [
-            {
-              resize: {
-                width: 1800,
-              },
-            },
-          ],
-          {
-            compress: 0.9,
-            format:
-              ImageManipulator.SaveFormat.JPEG,
-          }
-        );
+      const preparedUri =
+        await prepareImageForOCR(image.uri);
 
-      await processOCR(
-        manipulated.uri
-      );
+      await processOCR(preparedUri);
     } catch (error) {
-      console.log(error);
+      setLoading(false);
+
+      console.log("PICK IMAGE ERROR:", error);
+
+      Alert.alert(
+        "Error",
+        "Gagal memilih gambar struk."
+      );
     }
   };
 
@@ -728,44 +1481,18 @@ export default function ScanPage() {
           }
         );
 
-      console.log(
-        "PHOTO:",
-        photo
-      );
+      const preparedUri =
+        await prepareImageForOCR(photo.uri);
 
-      const manipulated =
-        await ImageManipulator.manipulateAsync(
-          photo.uri,
-          [
-            {
-              resize: {
-                width: 1800,
-              },
-            },
-          ],
-          {
-            compress: 0.9,
-            format:
-              ImageManipulator.SaveFormat.JPEG,
-          }
-        );
-
-      console.log(
-        "COMPRESSED:",
-        manipulated
-      );
-
-      await processOCR(
-        manipulated.uri
-      );
+      await processOCR(preparedUri);
     } catch (error) {
       setLoading(false);
 
-      console.log(error);
+      console.log("TAKE PHOTO ERROR:", error);
 
       Alert.alert(
         "Error",
-        "Gagal mengambil gambar"
+        "Gagal mengambil gambar struk."
       );
     }
   };
@@ -792,8 +1519,8 @@ export default function ScanPage() {
         </Text>
 
         <Text style={styles.permissionText}>
-          Gunakan kamera untuk scan
-          struk otomatis
+          Gunakan kamera untuk scan struk
+          dan input pengeluaran otomatis.
         </Text>
 
         <TouchableOpacity
@@ -812,10 +1539,6 @@ export default function ScanPage() {
     );
   }
 
-  // ======================
-  // SCAN LINE
-  // ======================
-
   const translateY =
     scanAnim.interpolate({
       inputRange: [0, 1],
@@ -826,7 +1549,6 @@ export default function ScanPage() {
     <View style={styles.container}>
       <StatusBar barStyle="light-content" />
 
-      {/* CAMERA */}
       <CameraView
         ref={cameraRef}
         style={StyleSheet.absoluteFillObject}
@@ -836,9 +1558,7 @@ export default function ScanPage() {
         }
       />
 
-      {/* OVERLAY */}
       <View style={styles.overlay}>
-        {/* HEADER */}
         <View style={styles.header}>
           <TouchableOpacity
             style={styles.topButton}
@@ -858,19 +1578,17 @@ export default function ScanPage() {
           <View style={{ width: 44 }} />
         </View>
 
-        {/* SCAN AREA */}
         <View style={styles.scanWrapper}>
           <Text style={styles.scanTitle}>
             Arahkan Kamera ke Struk
           </Text>
 
           <Text style={styles.scanSubtitle}>
-            Pastikan seluruh struk terlihat
-            jelas
+            Pastikan struk terang, tidak
+            blur, dan seluruh bagian terlihat.
           </Text>
 
           <View style={styles.scanFrame}>
-            {/* CORNERS */}
             <View
               style={[
                 styles.corner,
@@ -899,7 +1617,6 @@ export default function ScanPage() {
               ]}
             />
 
-            {/* SCAN LINE */}
             <Animated.View
               style={[
                 styles.scanLine,
@@ -912,7 +1629,6 @@ export default function ScanPage() {
             />
           </View>
 
-          {/* OCR RESULT */}
           {!!ocrText && (
             <View style={styles.resultBox}>
               <Text
@@ -931,7 +1647,6 @@ export default function ScanPage() {
           )}
         </View>
 
-        {/* LOADING */}
         {loading && (
           <View style={styles.loadingOverlay}>
             <ActivityIndicator
@@ -940,17 +1655,17 @@ export default function ScanPage() {
             />
 
             <Text style={styles.loadingText}>
-              Memindai Struk...
+              Memindai dan mengekstrak data
+              struk...
             </Text>
           </View>
         )}
 
-        {/* BOTTOM */}
         <View style={styles.bottomContainer}>
-          {/* GALLERY */}
           <TouchableOpacity
             style={styles.sideButton}
             onPress={pickImage}
+            disabled={loading}
           >
             <Ionicons
               name="images-outline"
@@ -959,11 +1674,11 @@ export default function ScanPage() {
             />
           </TouchableOpacity>
 
-          {/* SCAN BUTTON */}
           <TouchableOpacity
             activeOpacity={0.9}
             style={styles.captureOuter}
             onPress={takePhoto}
+            disabled={loading}
           >
             <View style={styles.captureMiddle}>
               <View style={styles.captureBase}>
@@ -980,11 +1695,9 @@ export default function ScanPage() {
             </View>
           </TouchableOpacity>
 
-          {/* FLASH */}
           <TouchableOpacity
             style={[
               styles.sideButton,
-
               flashMode === "torch" && {
                 backgroundColor:
                   "#44DA76",
@@ -997,6 +1710,7 @@ export default function ScanPage() {
                   : "off"
               );
             }}
+            disabled={loading}
           >
             <Ionicons
               name={
@@ -1027,10 +1741,8 @@ const styles = StyleSheet.create({
   permissionContainer: {
     flex: 1,
     backgroundColor: "#151716",
-
     justifyContent: "center",
     alignItems: "center",
-
     paddingHorizontal: 30,
   },
 
@@ -1038,28 +1750,22 @@ const styles = StyleSheet.create({
     color: "white",
     fontSize: 24,
     fontWeight: "700",
-
     marginTop: 24,
   },
 
   permissionText: {
     color: "#999",
     fontSize: 15,
-
     textAlign: "center",
-
     marginTop: 10,
     lineHeight: 22,
   },
 
   permissionButton: {
     marginTop: 28,
-
     backgroundColor: "#44DA76",
-
     paddingHorizontal: 26,
     paddingVertical: 14,
-
     borderRadius: 18,
   },
 
@@ -1077,9 +1783,7 @@ const styles = StyleSheet.create({
 
   header: {
     marginTop: 60,
-
     paddingHorizontal: 20,
-
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
@@ -1088,12 +1792,9 @@ const styles = StyleSheet.create({
   topButton: {
     width: 44,
     height: 44,
-
     borderRadius: 999,
-
     backgroundColor:
       "rgba(0,0,0,0.35)",
-
     justifyContent: "center",
     alignItems: "center",
   },
@@ -1106,10 +1807,8 @@ const styles = StyleSheet.create({
 
   scanWrapper: {
     flex: 1,
-
     justifyContent: "center",
     alignItems: "center",
-
     marginBottom: 70,
   },
 
@@ -1122,81 +1821,68 @@ const styles = StyleSheet.create({
   scanSubtitle: {
     color: "#D1D1D1",
     fontSize: 14,
-
+    textAlign: "center",
     marginTop: 8,
     marginBottom: 28,
+    paddingHorizontal: 30,
+    lineHeight: 20,
   },
 
   scanFrame: {
     width: width * 0.78,
     height: width * 1.05,
-
     borderRadius: 28,
-
     overflow: "hidden",
   },
 
   corner: {
     position: "absolute",
-
     width: 42,
     height: 42,
-
     borderColor: "#44DA76",
-
     zIndex: 10,
   },
 
   topLeft: {
     top: 0,
     left: 0,
-
     borderTopWidth: 5,
     borderLeftWidth: 5,
-
     borderTopLeftRadius: 24,
   },
 
   topRight: {
     top: 0,
     right: 0,
-
     borderTopWidth: 5,
     borderRightWidth: 5,
-
     borderTopRightRadius: 24,
   },
 
   bottomLeft: {
     bottom: 0,
     left: 0,
-
     borderBottomWidth: 5,
     borderLeftWidth: 5,
-
     borderBottomLeftRadius: 24,
   },
 
   bottomRight: {
     bottom: 0,
     right: 0,
-
     borderBottomWidth: 5,
     borderRightWidth: 5,
-
     borderBottomRightRadius: 24,
   },
 
   scanLine: {
     width: "100%",
     height: 3,
-
     backgroundColor: "#44DA76",
   },
 
   bottomContainer: {
     marginBottom: 40,
-
     flexDirection: "row",
     justifyContent: "space-evenly",
     alignItems: "center",
@@ -1205,12 +1891,9 @@ const styles = StyleSheet.create({
   sideButton: {
     width: 58,
     height: 58,
-
     borderRadius: 999,
-
     backgroundColor:
       "rgba(0,0,0,0.4)",
-
     justifyContent: "center",
     alignItems: "center",
   },
@@ -1218,11 +1901,8 @@ const styles = StyleSheet.create({
   captureOuter: {
     width: 92,
     height: 92,
-
     borderRadius: 999,
-
     backgroundColor: "#181818",
-
     justifyContent: "center",
     alignItems: "center",
   },
@@ -1230,11 +1910,8 @@ const styles = StyleSheet.create({
   captureMiddle: {
     width: 82,
     height: 82,
-
     borderRadius: 999,
-
     backgroundColor: "#2B2B2B",
-
     justifyContent: "center",
     alignItems: "center",
   },
@@ -1242,42 +1919,33 @@ const styles = StyleSheet.create({
   captureBase: {
     width: 68,
     height: 68,
-
     borderRadius: 999,
-
     backgroundColor: "#2FBF62",
-
     justifyContent: "flex-start",
     alignItems: "center",
-
     paddingTop: 4,
   },
 
   captureInner: {
     width: 58,
     height: 58,
-
     borderRadius: 999,
-
     backgroundColor: "#44DA76",
-
     justifyContent: "center",
     alignItems: "center",
   },
 
   loadingOverlay: {
     position: "absolute",
-
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
-
     backgroundColor:
-      "rgba(0,0,0,0.6)",
-
+      "rgba(0,0,0,0.65)",
     justifyContent: "center",
     alignItems: "center",
+    paddingHorizontal: 30,
   },
 
   loadingText: {
@@ -1285,18 +1953,15 @@ const styles = StyleSheet.create({
     marginTop: 14,
     fontSize: 16,
     fontWeight: "600",
+    textAlign: "center",
   },
 
   resultBox: {
     marginTop: 20,
-
     width: width * 0.82,
-
     backgroundColor:
       "rgba(0,0,0,0.5)",
-
     padding: 16,
-
     borderRadius: 20,
   },
 
@@ -1304,7 +1969,6 @@ const styles = StyleSheet.create({
     color: "#44DA76",
     fontSize: 16,
     fontWeight: "700",
-
     marginBottom: 10,
   },
 

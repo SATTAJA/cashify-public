@@ -1,0 +1,20 @@
+{
+  "name": "cashify-ai-backend",
+  "version": "1.0.0",
+  "description": "Backend AI untuk ekstraksi data struk Cashify",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@google/genai": "^2.4.0",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1"
+  }
+}

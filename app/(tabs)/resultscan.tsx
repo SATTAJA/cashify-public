@@ -1,6 +1,6 @@
 // app/resultscan.tsx
 
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import {
   Alert,
   ActivityIndicator,
 } from "react-native";
+
 import {
   ChevronLeft,
   ShoppingCart,
@@ -24,152 +25,435 @@ import {
   Receipt,
   ArrowRight,
   CheckCircle,
+  Sparkles,
+  Store,
+  CalendarDays,
+  Clock,
+  CreditCard,
+  BadgePercent,
+  Banknote,
+  FileText,
+  Info,
 } from "lucide-react-native";
 
 import { router, useLocalSearchParams } from "expo-router";
 import { supabase } from "../../lib/supabase";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { getCurrencySymbol, getAllCurrencies } from "../../constants/currencies";
+import {
+  getCurrencySymbol,
+  getAllCurrencies,
+} from "../../constants/currencies";
+
+type ReceiptItem = {
+  name: string;
+  qty: number;
+  price: number;
+  total: number;
+  discount: number;
+  finalTotal: number;
+};
+
+type ReceiptData = {
+  merchant: string;
+  date: string;
+  time: string;
+  items: ReceiptItem[];
+  subtotal: number;
+  totalDiscount: number;
+  total: number;
+  cash: number;
+  change: number;
+  saved: number;
+  tax: number;
+  serviceCharge: number;
+  paymentMethod: string;
+  note: string;
+  rawText: string;
+  extractMode: string;
+};
 
 const PRESET_CATEGORIES = [
-  { name: "Belanja Bulanan", icon: <ShoppingCart color="#74C1FF" size={20} /> },
-  { name: "Makan & Minum", icon: <Utensils color="#74C1FF" size={20} /> },
-  { name: "Kesehatan", icon: <Stethoscope color="#74C1FF" size={20} /> },
-  { name: "Hiburan", icon: <Gamepad2 color="#74C1FF" size={20} /> },
-  { name: "Transportasi", icon: <Car color="#74C1FF" size={20} /> },
-  { name: "Pakaian", icon: <Shirt color="#74C1FF" size={20} /> },
-  { name: "Barang", icon: <Package color="#74C1FF" size={20} /> },
-  { name: "Lainnya", icon: <PlusCircle color="#74C1FF" size={20} /> },
+  {
+    name: "Belanja Bulanan",
+    icon: <ShoppingCart color="#74C1FF" size={20} />,
+  },
+  {
+    name: "Makan & Minum",
+    icon: <Utensils color="#74C1FF" size={20} />,
+  },
+  {
+    name: "Kesehatan",
+    icon: <Stethoscope color="#74C1FF" size={20} />,
+  },
+  {
+    name: "Hiburan",
+    icon: <Gamepad2 color="#74C1FF" size={20} />,
+  },
+  {
+    name: "Transportasi",
+    icon: <Car color="#74C1FF" size={20} />,
+  },
+  {
+    name: "Pakaian",
+    icon: <Shirt color="#74C1FF" size={20} />,
+  },
+  {
+    name: "Barang",
+    icon: <Package color="#74C1FF" size={20} />,
+  },
+  {
+    name: "Lainnya",
+    icon: <PlusCircle color="#74C1FF" size={20} />,
+  },
 ];
 
-// Format angka dengan mata uang tertentu
-const formatCurrency = (value: string, currencyCode: string = "IDR") => {
-  const numeric = value.replace(/\D/g, "");
+const getParamString = (
+  value: string | string[] | undefined,
+  fallback = ""
+) => {
+  if (Array.isArray(value)) {
+    return value[0] ?? fallback;
+  }
+
+  return value ?? fallback;
+};
+
+const getParamNumber = (
+  value: string | string[] | undefined
+) => {
+  const raw = getParamString(value, "0");
+  const parsed = Number(raw);
+
+  if (!Number.isFinite(parsed)) {
+    return 0;
+  }
+
+  return Math.max(0, Math.round(parsed));
+};
+
+const safeNumber = (value: unknown) => {
+  const parsed = Number(value);
+
+  if (!Number.isFinite(parsed)) {
+    return 0;
+  }
+
+  return Math.max(0, Math.round(parsed));
+};
+
+const formatCurrency = (
+  value: string | number,
+  currencyCode = "IDR"
+) => {
+  const numeric = String(value || "0").replace(/\D/g, "");
+
+  if (!numeric) {
+    return "";
+  }
+
   if (currencyCode === "IDR") {
     return numeric.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
   }
+
   return numeric.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 };
 
-// Fungsi untuk ekstrak item dari teks OCR
-const extractItemsFromOCR = (text: string): string[] => {
-  const items: string[] = [];
-  
-  // Pattern umum untuk item belanjaan
-  const patterns = [
-    /([A-Za-z\s]+?)\s+(\d+[.,]\d+)/g, // Item dengan harga
-    /([A-Za-z\s]+?)\s+Rp[\s]*(\d+[.,\d]*)/gi, // Item dengan Rp
-    /(\d+)x\s+([A-Za-z\s]+)/gi, // Quantity + item
-    /([A-Za-z\s]+?)\s+(\d+)/g, // Item dengan angka
-  ];
-  
-  // Cari item berdasarkan pola umum
-  for (const pattern of patterns) {
-    let match;
-    while ((match = pattern.exec(text)) !== null) {
-      let itemName = match[1]?.trim();
-      if (itemName && itemName.length > 2 && itemName.length < 50) {
-        // Filter kata-kata umum yang bukan item
-        const commonWords = ['total', 'jumlah', 'bayar', 'kembali', 'diskon', 'ppn', 'qty', 'harga', 'subtotal', 'grand total', 'rp', 'indonesia', 'terima kasih'];
-        const isCommonWord = commonWords.some(word => itemName.toLowerCase().includes(word));
-        
-        if (!isCommonWord && !items.includes(itemName)) {
-          items.push(itemName);
-        }
-      }
-    }
-  }
-  
-  // Jika tidak ada item yang ditemukan, coba split berdasarkan baris
-  if (items.length === 0) {
-    const lines = text.split(/\r?\n/);
-    for (const line of lines) {
-      const trimmed = line.trim();
-      // Cari line yang mengandung angka dan bukan header/footer
-      if (trimmed && /\d/.test(trimmed) && trimmed.length > 3 && trimmed.length < 60) {
-        const hasPrice = /(Rp|\d+[.,]\d+)/.test(trimmed);
-        const isNotHeader = !/^(tanggal|date|no|invoice|kasir|cashier)/i.test(trimmed);
-        
-        if (hasPrice && isNotHeader) {
-          // Bersihkan nama item
-          let itemName = trimmed.replace(/\s+\d+[.,\d]*\s*$/, '').trim();
-          itemName = itemName.replace(/Rp[\s\d.,]+/gi, '').trim();
-          
-          if (itemName.length > 2 && itemName.length < 40 && !items.includes(itemName)) {
-            items.push(itemName);
-          }
-        }
-      }
-    }
-  }
-  
-  // Batasi jumlah item
-  return items.slice(0, 10);
+const formatMoney = (
+  amount: number,
+  currencySymbol = "Rp",
+  currencyCode = "IDR"
+) => {
+  return `${currencySymbol} ${formatCurrency(
+    amount,
+    currencyCode
+  ) || "0"}`;
 };
 
-// Generate catatan otomatis
-const generateAutoNote = (items: string[], total: number, currencySymbol: string) => {
-  if (items.length === 0) {
-    return `Total belanja: ${currencySymbol} ${total.toLocaleString('id-ID')}`;
+const parseItemsParam = (
+  value: string | string[] | undefined
+): ReceiptItem[] => {
+  try {
+    const raw = getParamString(value, "[]");
+    const parsed = JSON.parse(raw);
+
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed
+      .filter((item) => item && item.name)
+      .map((item) => {
+        const qty =
+          Number(item.qty) > 0 ? Number(item.qty) : 1;
+
+        const price = safeNumber(item.price);
+
+        const total =
+          safeNumber(item.total) ||
+          Math.round(qty * price);
+
+        const discount = safeNumber(item.discount);
+
+        const finalTotal =
+          safeNumber(item.finalTotal) ||
+          Math.max(total - discount, 0);
+
+        return {
+          name: String(item.name || "Barang").trim(),
+          qty,
+          price,
+          total,
+          discount,
+          finalTotal,
+        };
+      });
+  } catch (error) {
+    console.log("PARSE ITEMS PARAM ERROR:", error);
+    return [];
   }
-  
-  const itemList = items.slice(0, 5).join(", ");
-  const moreItems = items.length > 5 ? `, dan ${items.length - 5} item lainnya` : "";
-  
-  return `Pembelian: ${itemList}${moreItems}. Total: ${currencySymbol} ${total.toLocaleString('id-ID')}`;
+};
+
+const buildReceiptNote = (
+  receipt: ReceiptData,
+  categoryName: string | null
+) => {
+  const itemLines =
+    receipt.items.length > 0
+      ? receipt.items.map((item, index) => {
+          const discountText =
+            item.discount > 0
+              ? ` | Diskon: Rp ${item.discount.toLocaleString("id-ID")}`
+              : "";
+
+          return `${index + 1}. ${item.name} | Qty: ${
+            item.qty
+          } | Harga: Rp ${item.price.toLocaleString(
+            "id-ID"
+          )} | Total: Rp ${item.finalTotal.toLocaleString(
+            "id-ID"
+          )}${discountText}`;
+        })
+      : ["Barang tidak terdeteksi jelas"];
+
+  return [
+    `Kategori: ${categoryName || "-"}`,
+    `Merchant: ${receipt.merchant || "Struk Belanja"}`,
+    receipt.date ? `Tanggal: ${receipt.date}` : "",
+    receipt.time ? `Waktu: ${receipt.time}` : "",
+    `Metode Bayar: ${
+      receipt.paymentMethod || "Tidak diketahui"
+    }`,
+    `Mode Ekstraksi: ${
+      receipt.extractMode === "ai"
+        ? "AI Gemini"
+        : receipt.extractMode === "parser"
+          ? "Parser Lokal"
+          : "Manual"
+    }`,
+    "",
+    "BARANG/JASA:",
+    ...itemLines,
+    "",
+    "RINGKASAN:",
+    `Subtotal: Rp ${receipt.subtotal.toLocaleString("id-ID")}`,
+    `Diskon: Rp ${receipt.totalDiscount.toLocaleString("id-ID")}`,
+    `Pajak/PPN: Rp ${receipt.tax.toLocaleString("id-ID")}`,
+    `Biaya Layanan/Admin: Rp ${receipt.serviceCharge.toLocaleString(
+      "id-ID"
+    )}`,
+    `Total: Rp ${receipt.total.toLocaleString("id-ID")}`,
+    `Bayar/Tunai: Rp ${receipt.cash.toLocaleString("id-ID")}`,
+    `Kembalian: Rp ${receipt.change.toLocaleString("id-ID")}`,
+    receipt.saved > 0
+      ? `Anda Hemat: Rp ${receipt.saved.toLocaleString("id-ID")}`
+      : "",
+  ]
+    .filter((line) => line !== "")
+    .join("\n");
+};
+
+const guessCategoryFromReceipt = (
+  receipt: ReceiptData
+) => {
+  const text = [
+    receipt.merchant,
+    receipt.paymentMethod,
+    ...receipt.items.map((item) => item.name),
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  if (
+    /ayam|nasi|mie|bakso|kopi|coffee|teh|resto|cafe|kfc|mcd|richeese|mixue|burger|pizza|makan|minum|roti|snack|susu/.test(
+      text
+    )
+  ) {
+    return "Makan & Minum";
+  }
+
+  if (
+    /obat|apotek|farmasi|vitamin|masker|dokter|klinik|kesehatan/.test(
+      text
+    )
+  ) {
+    return "Kesehatan";
+  }
+
+  if (/bensin|grab|gojek|ojek|parkir|tol|transport|bus|kereta/.test(text)) {
+    return "Transportasi";
+  }
+
+  if (/baju|kaos|celana|sepatu|sandal|shirt|pakaian/.test(text)) {
+    return "Pakaian";
+  }
+
+  if (/game|bioskop|cinema|hiburan|netflix|spotify/.test(text)) {
+    return "Hiburan";
+  }
+
+  return "Belanja Bulanan";
 };
 
 const ResultScan = () => {
   const params = useLocalSearchParams();
-  
-  // Data dari hasil scan
-  const scannedAmount = params.amount ? parseFloat(params.amount as string) : 0;
-  const scannedNote = params.note as string || "";
-  const fromScan = params.fromScan === "true";
-  const manualInput = params.manualInput === "true";
-  
-  const [rawAmount, setRawAmount] = useState(scannedAmount.toString());
+
+  const fromScan = getParamString(params.fromScan) === "true";
+  const manualInput =
+    getParamString(params.manualInput) === "true";
+
+  const scannedReceipt = useMemo<ReceiptData>(() => {
+    const items = parseItemsParam(params.items);
+
+    const subtotalFromItems = items.reduce(
+      (sum, item) => sum + item.total,
+      0
+    );
+
+    const finalTotalFromItems = items.reduce(
+      (sum, item) => sum + item.finalTotal,
+      0
+    );
+
+    const total =
+      getParamNumber(params.total) ||
+      getParamNumber(params.amount) ||
+      finalTotalFromItems ||
+      subtotalFromItems;
+
+    const subtotal =
+      getParamNumber(params.subtotal) ||
+      subtotalFromItems ||
+      total;
+
+    const totalDiscount =
+      getParamNumber(params.discount) ||
+      items.reduce(
+        (sum, item) => sum + item.discount,
+        0
+      );
+
+    const tax = getParamNumber(params.tax);
+
+    const serviceCharge = getParamNumber(
+      params.serviceCharge
+    );
+
+    const cash = getParamNumber(params.cash);
+
+    const change =
+      getParamNumber(params.change) ||
+      (cash >= total ? cash - total : 0);
+
+    return {
+      merchant:
+        getParamString(params.merchant).trim() ||
+        "Struk Belanja",
+      date: getParamString(params.date).trim(),
+      time: getParamString(params.time).trim(),
+      items,
+      subtotal,
+      totalDiscount,
+      total,
+      cash,
+      change,
+      saved: getParamNumber(params.saved),
+      tax,
+      serviceCharge,
+      paymentMethod:
+        getParamString(params.paymentMethod).trim() ||
+        "Tidak diketahui",
+      note: getParamString(params.note).trim(),
+      rawText: getParamString(params.rawText).trim(),
+      extractMode:
+        getParamString(params.extractMode).trim() ||
+        (fromScan ? "parser" : "manual"),
+    };
+  }, [params, fromScan]);
+
+  const [rawAmount, setRawAmount] = useState(
+    String(scannedReceipt.total || "")
+  );
+
   const [displayAmount, setDisplayAmount] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+
+  const [selectedCategory, setSelectedCategory] =
+    useState<string | null>(
+      fromScan
+        ? guessCategoryFromReceipt(scannedReceipt)
+        : null
+    );
+
   const [note, setNote] = useState("");
+
   const [loading, setLoading] = useState(false);
-  const [extractedItems, setExtractedItems] = useState<string[]>([]);
-  
-  // State untuk pembayaran tunai dan kembalian
-  const [cashPaid, setCashPaid] = useState("");
-  const [displayCashPaid, setDisplayCashPaid] = useState("");
-  const [changeAmount, setChangeAmount] = useState(0);
-  const [recordChange, setRecordChange] = useState(true);
-  
-  // State untuk mata uang
-  const [currency, setCurrency] = useState<string>("IDR");
-  const [currencySymbol, setCurrencySymbol] = useState<string>("Rp");
-  const [exchangeRates, setExchangeRates] = useState<{ [key: string]: number } | null>(null);
-  const [loadingCurrency, setLoadingCurrency] = useState(true);
 
-  // Ekstrak item dari OCR note
-  useEffect(() => {
-    if (scannedNote && fromScan) {
-      const items = extractItemsFromOCR(scannedNote);
-      setExtractedItems(items);
-      
-      // Generate catatan otomatis
-      const autoGeneratedNote = generateAutoNote(items, scannedAmount, currencySymbol);
-      setNote(autoGeneratedNote);
-    } else if (!fromScan) {
-      setNote("");
-    }
-  }, [scannedNote, fromScan, scannedAmount, currencySymbol]);
+  const [cashPaid, setCashPaid] = useState(
+    scannedReceipt.cash > 0
+      ? String(scannedReceipt.cash)
+      : ""
+  );
 
-  // Load currency dari preferences
+  const [displayCashPaid, setDisplayCashPaid] =
+    useState("");
+
+  const [changeAmount, setChangeAmount] =
+    useState(scannedReceipt.change || 0);
+
+  const [recordChange, setRecordChange] =
+    useState(false);
+
+  const [currency, setCurrency] =
+    useState<string>("IDR");
+
+  const [currencySymbol, setCurrencySymbol] =
+    useState<string>("Rp");
+
+  const [exchangeRates, setExchangeRates] =
+    useState<{ [key: string]: number } | null>(
+      null
+    );
+
+  const [loadingCurrency, setLoadingCurrency] =
+    useState(true);
+
   useEffect(() => {
     const loadCurrency = async () => {
       try {
-        const savedCurrency = await AsyncStorage.getItem("currency");
+        if (fromScan) {
+          setCurrency("IDR");
+          setCurrencySymbol("Rp");
+          setLoadingCurrency(false);
+          return;
+        }
+
+        const savedCurrency =
+          await AsyncStorage.getItem("currency");
+
         if (savedCurrency) {
           setCurrency(savedCurrency);
-          const symbol = getCurrencySymbol(savedCurrency);
-          setCurrencySymbol(symbol);
+          setCurrencySymbol(
+            getCurrencySymbol(savedCurrency)
+          );
         } else {
           setCurrency("IDR");
           setCurrencySymbol("Rp");
@@ -178,111 +462,169 @@ const ResultScan = () => {
         console.error("Error loading currency:", error);
         setCurrency("IDR");
         setCurrencySymbol("Rp");
+      } finally {
+        if (fromScan) {
+          setLoadingCurrency(false);
+        }
       }
     };
-    loadCurrency();
-  }, []);
 
-  // Load exchange rates
+    loadCurrency();
+  }, [fromScan]);
+
   useEffect(() => {
     const loadExchangeRates = async () => {
+      if (fromScan || currency === "IDR") {
+        setExchangeRates({ IDR: 1 });
+        setLoadingCurrency(false);
+        return;
+      }
+
       try {
-        const response = await fetch(`https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/idr.json`);
-        
+        const response = await fetch(
+          "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/idr.json"
+        );
+
         if (response.ok) {
           const data = await response.json();
+
           if (data && data.idr) {
-            const rates: { [key: string]: number } = { IDR: 1 };
-            const supportedCurrencies = getAllCurrencies().map(c => c.code);
-            
-            supportedCurrencies.forEach(currencyCode => {
-              if (currencyCode === "IDR") {
-                rates[currencyCode] = 1;
-              } else {
-                const lowerCurrency = currencyCode.toLowerCase();
-                if (data.idr[lowerCurrency]) {
-                  rates[currencyCode] = data.idr[lowerCurrency];
-                } else {
+            const rates: { [key: string]: number } = {
+              IDR: 1,
+            };
+
+            const supportedCurrencies =
+              getAllCurrencies().map((item) => item.code);
+
+            supportedCurrencies.forEach(
+              (currencyCode) => {
+                if (currencyCode === "IDR") {
                   rates[currencyCode] = 1;
+                  return;
                 }
+
+                const lowerCurrency =
+                  currencyCode.toLowerCase();
+
+                rates[currencyCode] =
+                  data.idr[lowerCurrency] || 1;
               }
-            });
-            
+            );
+
             setExchangeRates(rates);
           }
         }
       } catch (error) {
-        console.error("Error loading exchange rates:", error);
+        console.error(
+          "Error loading exchange rates:",
+          error
+        );
       } finally {
         setLoadingCurrency(false);
       }
     };
-    
-    loadExchangeRates();
-  }, []);
 
-  // Format amount awal
+    loadExchangeRates();
+  }, [currency, fromScan]);
+
   useEffect(() => {
-    if (rawAmount) {
-      const formatted = formatCurrency(rawAmount, currency);
-      setDisplayAmount(formatted);
-    } else {
-      setDisplayAmount("");
-    }
+    setDisplayAmount(formatCurrency(rawAmount, currency));
   }, [rawAmount, currency]);
 
-  // Update catatan saat total berubah
   useEffect(() => {
-    if (fromScan && scannedAmount > 0) {
-      const updatedNote = generateAutoNote(extractedItems, parseFloat(rawAmount) || 0, currencySymbol);
-      setNote(updatedNote);
-    }
-  }, [rawAmount, extractedItems, currencySymbol]);
+    setDisplayCashPaid(
+      cashPaid ? formatCurrency(cashPaid, currency) : ""
+    );
+  }, [cashPaid, currency]);
 
-  const handleBack = () => router.replace("/home");
+  useEffect(() => {
+    if (fromScan) {
+      const smartNote =
+        scannedReceipt.note ||
+        buildReceiptNote(
+          scannedReceipt,
+          selectedCategory
+        );
+
+      setNote(smartNote);
+    } else {
+      setNote("");
+    }
+  }, [fromScan]);
+
+  const handleBack = () => {
+    router.replace("/home");
+  };
+
+  const calculateChange = (
+    totalStr: string,
+    paidStr: string
+  ) => {
+    const total = Number(totalStr) || 0;
+    const paid = Number(paidStr) || 0;
+    const change = Math.max(0, paid - total);
+
+    setChangeAmount(change);
+  };
 
   const handleAmountChange = (text: string) => {
     const clean = text.replace(/\D/g, "");
+
     setRawAmount(clean);
-    const formatted = formatCurrency(clean, currency);
-    setDisplayAmount(formatted);
-    
-    // Update kembalian jika cash paid sudah diisi
+    setDisplayAmount(formatCurrency(clean, currency));
+
     if (cashPaid) {
       calculateChange(clean, cashPaid);
     }
   };
 
-  // Auto set cash paid sama dengan total (untuk memudahkan)
-  const handleAutoSetCashPaid = () => {
-    if (rawAmount && parseFloat(rawAmount) > 0) {
-      setCashPaid(rawAmount);
-      const formatted = formatCurrency(rawAmount, currency);
-      setDisplayCashPaid(formatted);
-      setChangeAmount(0);
-    }
-  };
-
   const handleCashPaidChange = (text: string) => {
     const clean = text.replace(/\D/g, "");
+
     setCashPaid(clean);
-    const formatted = formatCurrency(clean, currency);
-    setDisplayCashPaid(formatted);
-    
-    // Hitung kembalian
+    setDisplayCashPaid(
+      formatCurrency(clean, currency)
+    );
     calculateChange(rawAmount, clean);
   };
 
-  const calculateChange = (totalStr: string, paidStr: string) => {
-    const total = parseFloat(totalStr) || 0;
-    const paid = parseFloat(paidStr) || 0;
-    const change = Math.max(0, paid - total);
-    setChangeAmount(change);
+  const handleAutoSetCashPaid = () => {
+    if (!rawAmount || Number(rawAmount) <= 0) {
+      return;
+    }
+
+    setCashPaid(rawAmount);
+    setDisplayCashPaid(
+      formatCurrency(rawAmount, currency)
+    );
+    setChangeAmount(0);
   };
 
-  const ensureCategoryExists = async (categoryName: string) => {
+  const handleUseScannedCash = () => {
+    if (scannedReceipt.cash <= 0) {
+      return;
+    }
+
+    setCashPaid(String(scannedReceipt.cash));
+    setDisplayCashPaid(
+      formatCurrency(scannedReceipt.cash, currency)
+    );
+    setChangeAmount(scannedReceipt.change);
+  };
+
+  const ensureCategoryExists = async (
+    categoryName: string
+  ) => {
     const user = await supabase.auth.getUser();
     const userId = user.data.user?.id;
+
+    if (!userId) {
+      Alert.alert(
+        "Error",
+        "User belum login. Silakan login ulang."
+      );
+      return null;
+    }
 
     const { data: existing } = await supabase
       .from("categories")
@@ -292,7 +634,9 @@ const ResultScan = () => {
       .eq("user_id", userId)
       .maybeSingle();
 
-    if (existing) return existing.id;
+    if (existing) {
+      return existing.id;
+    }
 
     const { data, error } = await supabase
       .from("categories")
@@ -318,6 +662,11 @@ const ResultScan = () => {
   const ensureIncomeCategoryExists = async () => {
     const user = await supabase.auth.getUser();
     const userId = user.data.user?.id;
+
+    if (!userId) {
+      return null;
+    }
+
     const categoryName = "Kembalian Belanja";
 
     const { data: existing } = await supabase
@@ -328,7 +677,9 @@ const ResultScan = () => {
       .eq("user_id", userId)
       .maybeSingle();
 
-    if (existing) return existing.id;
+    if (existing) {
+      return existing.id;
+    }
 
     const { data, error } = await supabase
       .from("categories")
@@ -350,9 +701,32 @@ const ResultScan = () => {
     return data.id;
   };
 
+  const getFinalNote = () => {
+    const receiptWithLatestTotal: ReceiptData = {
+      ...scannedReceipt,
+      total: Number(rawAmount) || 0,
+      cash: Number(cashPaid) || 0,
+      change: changeAmount,
+    };
+
+    const receiptDetailNote = buildReceiptNote(
+      receiptWithLatestTotal,
+      selectedCategory
+    );
+
+    if (!note.trim()) {
+      return receiptDetailNote;
+    }
+
+    return `${note.trim()}\n\n--- Detail Scan Cashify ---\n${receiptDetailNote}`;
+  };
+
   const handleSave = async () => {
-    if (!rawAmount || parseFloat(rawAmount) === 0) {
-      Alert.alert("Error", "Nominal pengeluaran harus diisi.");
+    if (!rawAmount || Number(rawAmount) === 0) {
+      Alert.alert(
+        "Error",
+        "Nominal pengeluaran harus diisi."
+      );
       return;
     }
 
@@ -363,148 +737,418 @@ const ResultScan = () => {
 
     setLoading(true);
 
-    // Konversi amount ke IDR jika mata uang bukan IDR
-    let amountInIDR = parseFloat(rawAmount);
-    
-    if (currency !== "IDR" && exchangeRates) {
-      const rate = exchangeRates[currency];
-      if (rate && rate > 0) {
-        amountInIDR = amountInIDR / rate;
-      }
-    }
+    try {
+      let amountInIDR = Number(rawAmount);
 
-    // 1. Catat pengeluaran dengan note yang sudah di-generate
-    const categoryId = await ensureCategoryExists(selectedCategory);
-    if (!categoryId) {
-      setLoading(false);
-      return;
-    }
-
-    const user = await supabase.auth.getUser();
-    const userId = user.data.user?.id;
-
-    const { error: expenseError } = await supabase.from("transactions").insert([
-      {
-        user_id: userId,
-        amount: Math.round(amountInIDR),
-        category_id: categoryId,
-        type: "expense",
-        note: note,
-      },
-    ]);
-
-    if (expenseError) {
-      console.log(expenseError);
-      setLoading(false);
-      Alert.alert("Error", "Gagal menambahkan pengeluaran.");
-      return;
-    }
-
-    // 2. Catat kembalian sebagai pendapatan (jika ada dan user memilih)
-    if (recordChange && changeAmount > 0) {
-      let changeInIDR = changeAmount;
-      
-      if (currency !== "IDR" && exchangeRates) {
+      if (
+        !fromScan &&
+        currency !== "IDR" &&
+        exchangeRates
+      ) {
         const rate = exchangeRates[currency];
+
         if (rate && rate > 0) {
-          changeInIDR = changeAmount / rate;
+          amountInIDR = amountInIDR / rate;
         }
       }
-      
-      const incomeCategoryId = await ensureIncomeCategoryExists();
-      
-      if (incomeCategoryId) {
-        const changeNote = `Kembalian dari belanja ${selectedCategory}`;
-        
-        const { error: incomeError } = await supabase.from("transactions").insert([
+
+      const categoryId =
+        await ensureCategoryExists(selectedCategory);
+
+      if (!categoryId) {
+        setLoading(false);
+        return;
+      }
+
+      const user = await supabase.auth.getUser();
+      const userId = user.data.user?.id;
+
+      if (!userId) {
+        setLoading(false);
+        Alert.alert(
+          "Error",
+          "User belum login. Silakan login ulang."
+        );
+        return;
+      }
+
+      const finalNote = getFinalNote();
+
+      const { error: expenseError } = await supabase
+        .from("transactions")
+        .insert([
           {
             user_id: userId,
-            amount: Math.round(changeInIDR),
-            category_id: incomeCategoryId,
-            type: "income",
-            note: changeNote,
+            amount: Math.round(amountInIDR),
+            category_id: categoryId,
+            type: "expense",
+            note: finalNote,
           },
         ]);
-        
-        if (incomeError) {
-          console.log("Error saving change as income:", incomeError);
+
+      if (expenseError) {
+        console.log("SAVE EXPENSE ERROR:", expenseError);
+        setLoading(false);
+        Alert.alert(
+          "Error",
+          "Gagal menambahkan pengeluaran."
+        );
+        return;
+      }
+
+      if (recordChange && changeAmount > 0) {
+        let changeInIDR = changeAmount;
+
+        if (
+          !fromScan &&
+          currency !== "IDR" &&
+          exchangeRates
+        ) {
+          const rate = exchangeRates[currency];
+
+          if (rate && rate > 0) {
+            changeInIDR = changeAmount / rate;
+          }
+        }
+
+        const incomeCategoryId =
+          await ensureIncomeCategoryExists();
+
+        if (incomeCategoryId) {
+          const changeNote = [
+            `Kembalian dari belanja ${selectedCategory}`,
+            `Merchant: ${scannedReceipt.merchant}`,
+            `Total belanja: Rp ${Number(
+              rawAmount
+            ).toLocaleString("id-ID")}`,
+          ].join("\n");
+
+          const { error: incomeError } = await supabase
+            .from("transactions")
+            .insert([
+              {
+                user_id: userId,
+                amount: Math.round(changeInIDR),
+                category_id: incomeCategoryId,
+                type: "income",
+                note: changeNote,
+              },
+            ]);
+
+          if (incomeError) {
+            console.log(
+              "SAVE CHANGE INCOME ERROR:",
+              incomeError
+            );
+          }
         }
       }
-    }
 
-    setLoading(false);
+      setLoading(false);
 
-    let successMessage = "Pengeluaran berhasil ditambahkan!";
-    if (changeAmount > 0) {
-      successMessage += `\nKembalian: ${currencySymbol} ${formatCurrency(changeAmount.toString(), currency)}\nTelah dicatat sebagai pendapatan.`;
+      Alert.alert(
+        "Berhasil",
+        "Transaksi dari struk berhasil disimpan!"
+      );
+
+      router.replace("/home");
+    } catch (error) {
+      console.log("HANDLE SAVE ERROR:", error);
+      setLoading(false);
+      Alert.alert(
+        "Error",
+        "Terjadi kesalahan saat menyimpan transaksi."
+      );
     }
-    
-    Alert.alert("Berhasil", successMessage);
-    router.replace("/home");
   };
 
-  // Tampilkan loading saat mengambil kurs
+  const extractionLabel =
+    scannedReceipt.extractMode === "ai"
+      ? "AI Gemini"
+      : scannedReceipt.extractMode === "parser"
+        ? "Parser Lokal"
+        : "Manual";
+
   if (loadingCurrency) {
     return (
-      <View style={[styles.container, styles.loadingContainer]}>
-        <ActivityIndicator size="large" color="#FF6B6B" />
-        <Text style={styles.loadingText}>Memuat data mata uang...</Text>
+      <View
+        style={[
+          styles.container,
+          styles.loadingContainer,
+        ]}
+      >
+        <ActivityIndicator
+          size="large"
+          color="#44DA76"
+        />
+        <Text style={styles.loadingText}>
+          Memuat data transaksi...
+        </Text>
       </View>
     );
   }
 
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      {/* Header */}
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      showsVerticalScrollIndicator={false}
+    >
       <View style={styles.header}>
-        <TouchableOpacity style={styles.back} onPress={handleBack}>
+        <TouchableOpacity
+          style={styles.back}
+          onPress={handleBack}
+        >
           <ChevronLeft color="#FF6B6B" size={35} />
         </TouchableOpacity>
 
         <View style={styles.headerTitleContainer}>
           <Receipt color="#FF6B6B" size={24} />
-          <Text style={styles.title}>Hasil Scan Struk</Text>
+          <Text style={styles.title}>
+            Hasil Scan Struk
+          </Text>
         </View>
       </View>
 
-      {/* Informasi Scan */}
       {fromScan && (
         <View style={styles.scanInfoContainer}>
-          <CheckCircle color="#44DA76" size={20} />
+          {scannedReceipt.extractMode === "ai" ? (
+            <Sparkles color="#44DA76" size={22} />
+          ) : (
+            <CheckCircle color="#44DA76" size={22} />
+          )}
+
           <View style={styles.scanInfoContent}>
-            <Text style={styles.scanInfoTitle}>✓ Struk berhasil dipindai</Text>
-            {manualInput && (
-              <Text style={styles.scanInfoSubtitle}>
-                Total tidak terbaca otomatis, silakan isi manual
-              </Text>
-            )}
-            {extractedItems.length > 0 && (
-              <Text style={styles.scanInfoSubtitle}>
-                Ditemukan {extractedItems.length} item dalam struk
-              </Text>
-            )}
+            <Text style={styles.scanInfoTitle}>
+              Struk berhasil dipindai
+            </Text>
+
+            <Text style={styles.scanInfoSubtitle}>
+              Data diambil dari {extractionLabel}
+              {manualInput
+                ? " • total perlu dicek manual"
+                : ""}
+            </Text>
+
+            <Text style={styles.scanInfoSubtitle}>
+              {scannedReceipt.items.length} item terdeteksi
+            </Text>
           </View>
         </View>
       )}
 
-      {/* Item yang ditemukan */}
-      {extractedItems.length > 0 && (
+      <View style={styles.merchantCard}>
+        <View style={styles.merchantTop}>
+          <View style={styles.storeIcon}>
+            <Store color="#44DA76" size={22} />
+          </View>
+
+          <View style={{ flex: 1 }}>
+            <Text style={styles.merchantLabel}>
+              Merchant
+            </Text>
+            <Text style={styles.merchantName}>
+              {scannedReceipt.merchant}
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.metaGrid}>
+          <View style={styles.metaItem}>
+            <CalendarDays
+              color="#A9A9A9"
+              size={16}
+            />
+            <Text style={styles.metaText}>
+              {scannedReceipt.date || "-"}
+            </Text>
+          </View>
+
+          <View style={styles.metaItem}>
+            <Clock color="#A9A9A9" size={16} />
+            <Text style={styles.metaText}>
+              {scannedReceipt.time || "-"}
+            </Text>
+          </View>
+
+          <View style={styles.metaItem}>
+            <CreditCard
+              color="#A9A9A9"
+              size={16}
+            />
+            <Text style={styles.metaText}>
+              {scannedReceipt.paymentMethod}
+            </Text>
+          </View>
+        </View>
+      </View>
+
+      {scannedReceipt.items.length > 0 ? (
         <View style={styles.itemsContainer}>
-          <Text style={styles.itemsTitle}>Item yang dibeli:</Text>
-          <View style={styles.itemsList}>
-            {extractedItems.map((item, index) => (
-              <View key={index} style={styles.itemBadge}>
-                <Text style={styles.itemText}>{item}</Text>
-              </View>
-            ))}
+          <View style={styles.sectionHeader}>
+            <Text style={styles.itemsTitle}>
+              Barang dari Struk
+            </Text>
+            <Text style={styles.itemsCount}>
+              {scannedReceipt.items.length} item
+            </Text>
           </View>
+
+          {scannedReceipt.items.map((item, index) => (
+            <View
+              key={`${item.name}-${index}`}
+              style={styles.itemRow}
+            >
+              <View style={styles.itemNumber}>
+                <Text style={styles.itemNumberText}>
+                  {index + 1}
+                </Text>
+              </View>
+
+              <View style={styles.itemContent}>
+                <Text style={styles.itemName}>
+                  {item.name}
+                </Text>
+
+                <Text style={styles.itemMeta}>
+                  Qty {item.qty} ×{" "}
+                  {formatMoney(
+                    item.price,
+                    currencySymbol,
+                    currency
+                  )}
+                </Text>
+
+                {item.discount > 0 && (
+                  <Text style={styles.itemDiscount}>
+                    Diskon{" "}
+                    {formatMoney(
+                      item.discount,
+                      currencySymbol,
+                      currency
+                    )}
+                  </Text>
+                )}
+              </View>
+
+              <Text style={styles.itemTotal}>
+                {formatMoney(
+                  item.finalTotal || item.total,
+                  currencySymbol,
+                  currency
+                )}
+              </Text>
+            </View>
+          ))}
+        </View>
+      ) : (
+        <View style={styles.emptyItemCard}>
+          <Info color="#FFB84D" size={20} />
+          <Text style={styles.emptyItemText}>
+            Barang belum terdeteksi jelas. Kamu tetap
+            bisa menyimpan total belanjanya.
+          </Text>
         </View>
       )}
 
-      {/* Nominal Pengeluaran (Total Belanja) */}
-      <Text style={styles.label}>Total Belanja (Dari Struk)</Text>
+      <View style={styles.summaryCard}>
+        <Text style={styles.summaryTitle}>
+          Ringkasan dari AI
+        </Text>
+
+        <View style={styles.summaryRow}>
+          <Text style={styles.summaryLabel}>
+            Subtotal
+          </Text>
+          <Text style={styles.summaryValue}>
+            {formatMoney(
+              scannedReceipt.subtotal,
+              currencySymbol,
+              currency
+            )}
+          </Text>
+        </View>
+
+        {scannedReceipt.totalDiscount > 0 && (
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>
+              Diskon
+            </Text>
+            <Text
+              style={[
+                styles.summaryValue,
+                styles.discountValue,
+              ]}
+            >
+              -{" "}
+              {formatMoney(
+                scannedReceipt.totalDiscount,
+                currencySymbol,
+                currency
+              )}
+            </Text>
+          </View>
+        )}
+
+        {scannedReceipt.tax > 0 && (
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>
+              Pajak/PPN
+            </Text>
+            <Text style={styles.summaryValue}>
+              {formatMoney(
+                scannedReceipt.tax,
+                currencySymbol,
+                currency
+              )}
+            </Text>
+          </View>
+        )}
+
+        {scannedReceipt.serviceCharge > 0 && (
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>
+              Biaya layanan/admin
+            </Text>
+            <Text style={styles.summaryValue}>
+              {formatMoney(
+                scannedReceipt.serviceCharge,
+                currencySymbol,
+                currency
+              )}
+            </Text>
+          </View>
+        )}
+
+        {scannedReceipt.saved > 0 && (
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>
+              Anda hemat
+            </Text>
+            <Text
+              style={[
+                styles.summaryValue,
+                styles.savedValue,
+              ]}
+            >
+              {formatMoney(
+                scannedReceipt.saved,
+                currencySymbol,
+                currency
+              )}
+            </Text>
+          </View>
+        )}
+      </View>
+
+      <Text style={styles.label}>
+        Total Belanja
+      </Text>
       <View style={styles.nominalWrapper}>
-        <Text style={styles.currencySymbol}>{currencySymbol}</Text>
+        <Text style={styles.currencySymbol}>
+          {currencySymbol}
+        </Text>
+
         <TextInput
           style={styles.amountInput}
           keyboardType="number-pad"
@@ -516,11 +1160,16 @@ const ResultScan = () => {
         />
       </View>
 
-      {/* Uang yang Dibayarkan dengan tombol auto set */}
-      <Text style={styles.label}>Uang yang Dibayarkan</Text>
+      <Text style={styles.label}>
+        Uang yang Dibayarkan
+      </Text>
+
       <View style={styles.cashWrapper}>
         <View style={styles.nominalWrapper}>
-          <Text style={styles.currencySymbol}>{currencySymbol}</Text>
+          <Text style={styles.currencySymbol}>
+            {currencySymbol}
+          </Text>
+
           <TextInput
             style={styles.amountInput}
             keyboardType="number-pad"
@@ -531,50 +1180,104 @@ const ResultScan = () => {
             maxLength={15}
           />
         </View>
-        <TouchableOpacity style={styles.autoSetButton} onPress={handleAutoSetCashPaid}>
-          <Text style={styles.autoSetText}>Sama dengan total</Text>
-        </TouchableOpacity>
+
+        <View style={styles.cashButtonRow}>
+          <TouchableOpacity
+            style={styles.autoSetButton}
+            onPress={handleAutoSetCashPaid}
+          >
+            <Text style={styles.autoSetText}>
+              Sama dengan total
+            </Text>
+          </TouchableOpacity>
+
+          {scannedReceipt.cash > 0 && (
+            <TouchableOpacity
+              style={styles.autoSetButton}
+              onPress={handleUseScannedCash}
+            >
+              <Banknote color="#FF6B6B" size={14} />
+              <Text style={styles.autoSetText}>
+                Pakai bayar dari struk
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
-      {/* Kembalian */}
       {changeAmount > 0 && (
         <View style={styles.changeContainer}>
           <View style={styles.changeIconContainer}>
             <ArrowRight color="#44DA76" size={20} />
           </View>
+
           <View style={styles.changeContent}>
-            <Text style={styles.changeLabel}>Kembalian</Text>
+            <Text style={styles.changeLabel}>
+              Kembalian
+            </Text>
+
             <Text style={styles.changeValue}>
-              {currencySymbol} {formatCurrency(changeAmount.toString(), currency)}
+              {formatMoney(
+                changeAmount,
+                currencySymbol,
+                currency
+              )}
             </Text>
           </View>
-          <TouchableOpacity 
+
+          <TouchableOpacity
             style={[
               styles.recordChangeButton,
-              recordChange && styles.recordChangeButtonActive
+              recordChange &&
+                styles.recordChangeButtonActive,
             ]}
-            onPress={() => setRecordChange(!recordChange)}
+            onPress={() =>
+              setRecordChange(!recordChange)
+            }
           >
-            <Text style={[
-              styles.recordChangeText,
-              recordChange && styles.recordChangeTextActive
-            ]}>
-              {recordChange ? "✓ Catat" : "✗ Jangan Catat"}
+            <Text
+              style={[
+                styles.recordChangeText,
+                recordChange &&
+                  styles.recordChangeTextActive,
+              ]}
+            >
+              {recordChange
+                ? "✓ Catat"
+                : "Tidak dicatat"}
             </Text>
           </TouchableOpacity>
         </View>
       )}
 
-      {changeAmount === 0 && cashPaid && parseFloat(cashPaid) > 0 && (
-        <View style={[styles.changeContainer, styles.noChangeContainer]}>
-          <Text style={styles.noChangeText}>
-            Uang yang dibayarkan kurang dari total belanja
-          </Text>
-        </View>
-      )}
+      {cashPaid &&
+        Number(cashPaid) > 0 &&
+        Number(cashPaid) < Number(rawAmount) && (
+          <View
+            style={[
+              styles.changeContainer,
+              styles.noChangeContainer,
+            ]}
+          >
+            <Text style={styles.noChangeText}>
+              Uang yang dibayarkan kurang dari total
+              belanja.
+            </Text>
+          </View>
+        )}
 
-      {/* Catatan Pengeluaran (Auto Generated) */}
-      <Text style={styles.label}>Catatan Pengeluaran</Text>
+      <Text style={styles.label}>
+        Catatan Pengeluaran
+      </Text>
+
+      <View style={styles.noteHeader}>
+        <FileText color="#FF6B6B" size={16} />
+        <Text style={styles.noteHelper}>
+          Catatan sudah memakai detail dari hasil scan
+          AI/backend.
+        </Text>
+      </View>
+
       <TextInput
         style={styles.inputNote}
         placeholder="Catatan pengeluaran..."
@@ -582,84 +1285,124 @@ const ResultScan = () => {
         value={note}
         onChangeText={setNote}
         multiline
-        editable={true}
+        editable
       />
-      {fromScan && extractedItems.length > 0 && (
-        <Text style={styles.noteHelper}>
-          Catatan telah dibuat otomatis berdasarkan item yang terdeteksi
-        </Text>
-      )}
 
-      {/* Kategori */}
-      <Text style={styles.label}>Kategori Pengeluaran</Text>
+      <Text style={styles.label}>
+        Kategori Pengeluaran
+      </Text>
+
       <View style={styles.categoryWrapper}>
         {PRESET_CATEGORIES.map((cat) => (
           <TouchableOpacity
             key={cat.name}
             style={[
               styles.categoryButton,
-              selectedCategory === cat.name && styles.categorySelected,
+              selectedCategory === cat.name &&
+                styles.categorySelected,
             ]}
-            onPress={() => setSelectedCategory(cat.name)}
+            onPress={() =>
+              setSelectedCategory(cat.name)
+            }
           >
-            <View style={styles.categoryIcon}>{cat.icon}</View>
-            <Text style={styles.categoryText}>{cat.name}</Text>
+            <View style={styles.categoryIcon}>
+              {cat.icon}
+            </View>
+
+            <Text style={styles.categoryText}>
+              {cat.name}
+            </Text>
           </TouchableOpacity>
         ))}
       </View>
 
-      {/* Ringkasan */}
-      {(parseFloat(rawAmount) > 0 || changeAmount > 0) && (
-        <View style={styles.summaryContainer}>
-          <Text style={styles.summaryTitle}>Ringkasan Transaksi</Text>
-          
+      <View style={styles.finalSummaryCard}>
+        <View style={styles.finalSummaryTop}>
+          <BadgePercent
+            color="#44DA76"
+            size={20}
+          />
+          <Text style={styles.finalSummaryTitle}>
+            Ringkasan Simpan
+          </Text>
+        </View>
+
+        <View style={styles.summaryRow}>
+          <Text style={styles.summaryLabel}>
+            Total pengeluaran
+          </Text>
+          <Text style={styles.finalTotalValue}>
+            {formatMoney(
+              Number(rawAmount) || 0,
+              currencySymbol,
+              currency
+            )}
+          </Text>
+        </View>
+
+        {cashPaid && Number(cashPaid) > 0 && (
           <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Total Belanja:</Text>
+            <Text style={styles.summaryLabel}>
+              Dibayar
+            </Text>
             <Text style={styles.summaryValue}>
-              {currencySymbol} {displayAmount || "0"}
+              {formatMoney(
+                Number(cashPaid) || 0,
+                currencySymbol,
+                currency
+              )}
             </Text>
           </View>
-          
-          {cashPaid && parseFloat(cashPaid) > 0 && (
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Dibayar:</Text>
-              <Text style={styles.summaryValue}>
-                {currencySymbol} {displayCashPaid}
-              </Text>
-            </View>
-          )}
-          
-          {changeAmount > 0 && (
-            <>
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Kembalian:</Text>
-                <Text style={[styles.summaryValue, styles.summaryChangeValue]}>
-                  {currencySymbol} {formatCurrency(changeAmount.toString(), currency)}
-                </Text>
-              </View>
-              
-              {recordChange && (
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Status Kembalian:</Text>
-                  <Text style={[styles.summaryValue, styles.summaryIncomeText]}>
-                    Akan dicatat sebagai pendapatan
-                  </Text>
-                </View>
-              )}
-            </>
-          )}
-        </View>
-      )}
+        )}
 
-      {/* Save Button */}
+        {changeAmount > 0 && (
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>
+              Kembalian
+            </Text>
+            <Text
+              style={[
+                styles.summaryValue,
+                styles.savedValue,
+              ]}
+            >
+              {formatMoney(
+                changeAmount,
+                currencySymbol,
+                currency
+              )}
+            </Text>
+          </View>
+        )}
+
+        <View style={styles.summaryRow}>
+          <Text style={styles.summaryLabel}>
+            Kategori
+          </Text>
+          <Text style={styles.summaryValue}>
+            {selectedCategory || "-"}
+          </Text>
+        </View>
+      </View>
+
       <TouchableOpacity
-        style={[styles.saveButton, loading && { opacity: 0.5 }]}
+        style={[
+          styles.saveButton,
+          loading && { opacity: 0.5 },
+        ]}
         onPress={handleSave}
         disabled={loading}
       >
-        <Text style={styles.saveText}>
-          {loading ? "Menyimpan..." : "Simpan Transaksi"}
-        </Text>
+        {loading ? (
+          <ActivityIndicator
+            color="#151716"
+            size="small"
+          />
+        ) : (
+          <Text style={styles.saveText}>
+            Simpan Transaksi
+          </Text>
+        )}
       </TouchableOpacity>
     </ScrollView>
   );
@@ -671,7 +1414,11 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#151716",
+  },
+
+  content: {
     paddingHorizontal: 20,
+    paddingBottom: 40,
   },
 
   loadingContainer: {
@@ -711,12 +1458,12 @@ const styles = StyleSheet.create({
   },
 
   scanInfoContainer: {
-    backgroundColor: "#2A2A2A",
-    borderRadius: 12,
+    backgroundColor: "#1E2A1E",
+    borderRadius: 16,
     padding: 16,
-    marginBottom: 20,
-    borderLeftWidth: 4,
-    borderLeftColor: "#44DA76",
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "#44DA76",
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
@@ -734,40 +1481,220 @@ const styles = StyleSheet.create({
   },
 
   scanInfoSubtitle: {
-    color: "#AAA",
+    color: "#D5D5D5",
     fontSize: 13,
+    lineHeight: 18,
   },
 
-  itemsContainer: {
+  merchantCard: {
     backgroundColor: "#1E201F",
-    borderRadius: 12,
+    borderRadius: 18,
     padding: 16,
-    marginBottom: 20,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "#2B2F2D",
   },
 
-  itemsTitle: {
-    color: "#FF6B6B",
-    fontSize: 14,
-    fontWeight: "600",
-    marginBottom: 12,
+  merchantTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 14,
   },
 
-  itemsList: {
+  storeIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: "#44DA7620",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  merchantLabel: {
+    color: "#8D8D8D",
+    fontSize: 12,
+    marginBottom: 2,
+  },
+
+  merchantName: {
+    color: "white",
+    fontSize: 19,
+    fontWeight: "800",
+  },
+
+  metaGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 8,
   },
 
-  itemBadge: {
-    backgroundColor: "#2A2A2A",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
+  metaItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#252827",
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 12,
   },
 
-  itemText: {
-    color: "white",
+  metaText: {
+    color: "#D9D9D9",
     fontSize: 12,
+    fontWeight: "600",
+  },
+
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 10,
+  },
+
+  itemsContainer: {
+    backgroundColor: "#1E201F",
+    borderRadius: 18,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "#2B2F2D",
+  },
+
+  itemsTitle: {
+    color: "#FF6B6B",
+    fontSize: 15,
+    fontWeight: "800",
+  },
+
+  itemsCount: {
+    color: "#999",
+    fontSize: 12,
+  },
+
+  itemRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#2A2D2B",
+  },
+
+  itemNumber: {
+    width: 28,
+    height: 28,
+    borderRadius: 999,
+    backgroundColor: "#264E6E",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 10,
+  },
+
+  itemNumberText: {
+    color: "#74C1FF",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+
+  itemContent: {
+    flex: 1,
+  },
+
+  itemName: {
+    color: "white",
+    fontSize: 14,
+    fontWeight: "700",
+    marginBottom: 4,
+  },
+
+  itemMeta: {
+    color: "#A9A9A9",
+    fontSize: 12,
+  },
+
+  itemDiscount: {
+    color: "#44DA76",
+    fontSize: 11,
+    marginTop: 3,
+  },
+
+  itemTotal: {
+    color: "white",
+    fontSize: 13,
+    fontWeight: "800",
+    marginLeft: 8,
+  },
+
+  emptyItemCard: {
+    backgroundColor: "#2A241A",
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "#FFB84D40",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+
+  emptyItemText: {
+    color: "#FFD699",
+    fontSize: 13,
+    lineHeight: 18,
+    flex: 1,
+  },
+
+  summaryCard: {
+    backgroundColor: "#1E201F",
+    borderRadius: 18,
+    padding: 16,
+    marginBottom: 6,
+    borderWidth: 1,
+    borderColor: "#2B2F2D",
+  },
+
+  summaryTitle: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "800",
+    marginBottom: 12,
+  },
+
+  summaryRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 9,
+    gap: 12,
+  },
+
+  summaryLabel: {
+    color: "#AAA",
+    fontSize: 14,
+    flex: 1,
+  },
+
+  summaryValue: {
+    color: "white",
+    fontSize: 14,
+    fontWeight: "700",
+    textAlign: "right",
+  },
+
+  discountValue: {
+    color: "#FF6B6B",
+  },
+
+  savedValue: {
+    color: "#44DA76",
+  },
+
+  label: {
+    color: "#FF6B6B",
+    fontSize: 15,
+    marginBottom: 10,
+    marginTop: 20,
+    fontWeight: "700",
   },
 
   nominalWrapper: {
@@ -795,86 +1722,34 @@ const styles = StyleSheet.create({
     gap: 10,
   },
 
+  cashButtonRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+
   autoSetButton: {
     backgroundColor: "#2A2A2A",
     paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 8,
+    paddingHorizontal: 13,
+    borderRadius: 10,
     alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
   },
 
   autoSetText: {
     color: "#FF6B6B",
     fontSize: 12,
-    fontWeight: "600",
-  },
-
-  label: {
-    color: "#FF6B6B",
-    fontSize: 15,
-    marginBottom: 10,
-    marginTop: 20,
-    fontWeight: "600",
-  },
-
-  inputNote: {
-    backgroundColor: "#1E201F",
-    borderRadius: 10,
-    padding: 12,
-    color: "white",
-    height: 80,
-    fontSize: 16,
-    textAlignVertical: "top",
-  },
-
-  noteHelper: {
-    color: "#666",
-    fontSize: 11,
-    marginTop: 6,
-    marginLeft: 4,
-  },
-
-  categoryWrapper: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 12,
-    marginTop: 5,
-  },
-
-  categoryButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    backgroundColor: "#252525",
-  },
-
-  categorySelected: {
-    borderColor: "#FF6B6B",
-    borderWidth: 1,
-    shadowColor: "#FF6B6B",
-    shadowOpacity: 0.25,
-    elevation: 5,
-  },
-
-  categoryIcon: {
-    backgroundColor: "#264E6E",
-    borderRadius: 10,
-    padding: 10,
-  },
-
-  categoryText: {
-    color: "white",
-    fontWeight: "600",
+    fontWeight: "700",
   },
 
   changeContainer: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#1E2A1E",
-    borderRadius: 12,
+    borderRadius: 14,
     padding: 16,
     marginTop: 15,
     marginBottom: 5,
@@ -921,8 +1796,8 @@ const styles = StyleSheet.create({
 
   recordChangeButton: {
     paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
+    paddingVertical: 7,
+    borderRadius: 9,
     backgroundColor: "#2A2A2A",
   },
 
@@ -935,67 +1810,118 @@ const styles = StyleSheet.create({
   recordChangeText: {
     color: "#AAA",
     fontSize: 12,
+    fontWeight: "700",
   },
 
   recordChangeTextActive: {
     color: "#44DA76",
-    fontWeight: "600",
   },
 
-  summaryContainer: {
-    backgroundColor: "#1E201F",
-    borderRadius: 12,
-    padding: 16,
-    marginTop: 25,
-    marginBottom: 10,
-  },
-
-  summaryTitle: {
-    color: "white",
-    fontSize: 16,
-    fontWeight: "bold",
-    marginBottom: 12,
-  },
-
-  summaryRow: {
+  noteHeader: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
+    gap: 6,
     marginBottom: 8,
   },
 
-  summaryLabel: {
-    color: "#AAA",
-    fontSize: 14,
-  },
-
-  summaryValue: {
+  inputNote: {
+    backgroundColor: "#1E201F",
+    borderRadius: 14,
+    padding: 13,
     color: "white",
+    minHeight: 120,
     fontSize: 14,
-    fontWeight: "600",
+    lineHeight: 20,
+    textAlignVertical: "top",
+    borderWidth: 1,
+    borderColor: "#2B2F2D",
   },
 
-  summaryChangeValue: {
-    color: "#44DA76",
-  },
-
-  summaryIncomeText: {
-    color: "#44DA76",
+  noteHelper: {
+    color: "#888",
     fontSize: 12,
+    flex: 1,
+  },
+
+  categoryWrapper: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+    marginTop: 5,
+  },
+
+  categoryButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 14,
+    backgroundColor: "#252525",
+    borderWidth: 1,
+    borderColor: "transparent",
+  },
+
+  categorySelected: {
+    borderColor: "#FF6B6B",
+    shadowColor: "#FF6B6B",
+    shadowOpacity: 0.25,
+    elevation: 5,
+  },
+
+  categoryIcon: {
+    backgroundColor: "#264E6E",
+    borderRadius: 10,
+    padding: 10,
+  },
+
+  categoryText: {
+    color: "white",
+    fontWeight: "700",
+  },
+
+  finalSummaryCard: {
+    backgroundColor: "#1E201F",
+    borderRadius: 18,
+    padding: 16,
+    marginTop: 25,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: "#2B2F2D",
+  },
+
+  finalSummaryTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 12,
+  },
+
+  finalSummaryTitle: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "800",
+  },
+
+  finalTotalValue: {
+    color: "#44DA76",
+    fontSize: 16,
+    fontWeight: "900",
+    textAlign: "right",
   },
 
   saveButton: {
     backgroundColor: "#FF6B6B",
-    paddingVertical: 14,
-    borderRadius: 12,
-    marginTop: 30,
-    marginBottom: 40,
+    paddingVertical: 15,
+    borderRadius: 14,
+    marginTop: 20,
+    marginBottom: 20,
     alignItems: "center",
   },
 
   saveText: {
     color: "#151716",
     fontSize: 16,
-    fontWeight: "700",
+    fontWeight: "800",
   },
 });
